@@ -1,0 +1,44 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/dts-dev-0/networking
+  pullPolicy: IfNotPresent
+  tag: "0.1.0"
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  # TODO: enable once Traefik ingress is configured for this cluster
+  # className: traefik
+  # annotations:
+  #   traefik.ingress.kubernetes.io/router.entrypoints: websecure
+  #   cert-manager.io/cluster-issuer: letsencrypt-prod
+  # hosts:
+  #   - host: networking.andusystems.local
+  #     paths:
+  #       - path: /
+  #         pathType: Prefix
+  # tls:
+  #   - secretName: networking-tls
+  #     hosts:
+  #       - networking.andusystems.local
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+env:
+  Networking_JWT_SECRET: "change-me-in-production"
+
+autoscaling:
+  enabled: false
+
+agones:
+  enabled: false

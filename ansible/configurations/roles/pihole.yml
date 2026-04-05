@@ -1,0 +1,11 @@
+- name: Install Pi-hole
+  gather_facts: true
+  hosts: localhost
+  tasks:
+
+    - include_role:
+        name: pihole
+      tags:
+        - pihole
+        - apps
+        - install

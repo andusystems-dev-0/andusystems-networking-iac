@@ -1,0 +1,94 @@
+# networking/apps/pihole/values.yml
+replicas: 1
+
+pihole:
+  web:
+    password: "admin"
+    service:
+      type: ClusterIP
+
+  ftl:
+    dns:
+      upstreams:
+        - 1.1.1.1
+        - 8.8.8.8
+      queryLogging: true
+      #reply:
+      #  host:
+      #    force4: true
+      #listening:
+      #  mode: all  
+      #localNetwork:
+      #  - "10.244.0.0/16"   # your pod CIDR — adjust if different
+      #  - "10.238.0.0/16"   # your service/node network
+      service:
+        type: LoadBalancer
+        loadBalancerIP: "10.238.30.50"
+        annotations:
+          metallb.universe.tf/allow-shared-ip: "pihole"
+        externalTrafficPolicy: Local
+  #extraEnv:
+  #- name: FTLCONF_dns_localNetwork
+  #  value: "10.244.0.0/16,10.238.0.0/16"
+  #- name: FTLCONF_dns_listeningMode
+  #  value: "all"
+
+  lists:
+    adlists:
+      # StevenBlack unified hosts
+      - address: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+        comment: "StevenBlack Master"
+      - address: "https://raw.githubusercontent.com/StevenBlack/hosts/master/extensions/fakenews/hosts"
+        comment: "StevenBlack Fakenews"
+      # Hagezi - strict blocking
+      - address: "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/ultimate.txt"
+        comment: "Hagezi Ultimate"
+      - address: "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/tif.txt"
+        comment: "Hagezi TIF"
+      - address: "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/spam-tlds-adblock.txt"
+        comment: "Hagezi Spam TLDs"
+      - address: "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/gambling.txt"
+        comment: "Hagezi Gambling"
+      # OISD big list
+      - address: "https://big.oisd.nl"
+        comment: "OISD Big"
+      # Abuse/malware/threat feeds
+      - address: "https://urlhaus.abuse.ch/downloads/hostfile/"
+        comment: "URLhaus"
+      - address: "https://threatfox.abuse.ch/downloads/hostfile/"
+        comment: "ThreatFox"
+      - address: "https://raw.githubusercontent.com/RPiList/specials/master/Blocklisten/malware"
+        comment: "RPiList Malware"
+      # Ad/tracking lists
+      - address: "https://raw.githubusercontent.com/RPiList/specials/master/Blocklisten/easylist"
+        comment: "RPiList Easylist"
+      - address: "https://s3.amazonaws.com/lists.disconnect.me/simple_ad.txt"
+        comment: "Disconnect.me Ads"
+      - address: "https://s3.amazonaws.com/lists.disconnect.me/simple_malvertising.txt"
+        comment: "Disconnect.me Malvertising"
+      - address: "https://adaway.org/hosts.txt"
+        comment: "AdAway"
+      # Crypto/mining
+      - address: "https://v.firebog.net/hosts/Prigent-Crypto.txt"
+        comment: "Prigent Crypto"
+      - address: "https://raw.githubusercontent.com/blocklistproject/Lists/master/crypto.txt"
+        comment: "Blocklistproject Crypto"
+      # First-party trackers
+      - address: "https://hostfiles.frogeye.fr/firstparty-trackers-hosts.txt"
+        comment: "Frogeye First-party Trackers"
+
+extraEnv:
+  - name: FTLCONF_dns_listeningMode
+    value: "all"
+
+persistence:
+  etcPihole:
+    enabled: true
+    size: 5Gi
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
