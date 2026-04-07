@@ -2,8 +2,7 @@
 #deployment:
 #  replicas: 2
 
-#TODO: Maybe add this to the values.yaml file:
-#installCRDs: true
+installCRDs: true
 image:
   tag: "3.6.7"
 
