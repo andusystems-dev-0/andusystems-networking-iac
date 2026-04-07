@@ -8,12 +8,16 @@
     validate: 'visudo -cf %s'
   become: true
 
+# Workaround for a Go runtime bug where async preemption causes issues
+# with certain system calls on older kernels; disabling it prevents crashes
 - name: install | Set GODEBUG environment variable
   ansible.builtin.set_fact:
     ansible_environment:
       GODEBUG: "{{ lookup('env', 'GODEBUG') }},asyncpreemptoff=1"
 
 # --- Install Kubernetes dependencies on all nodes ---
+# Wait for any background apt processes (e.g. unattended-upgrades) to finish
+# before proceeding, to avoid "Could not get lock" errors during package install
 - name: install | Wait for apt locks to release
   ansible.builtin.shell: |
     while fuser /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1; do
@@ -24,6 +28,7 @@
   args:
     executable: /bin/bash
 
+# Kubernetes requires swap to be disabled; kubelet will refuse to start otherwise
 - name: install | Disable swap
   ansible.builtin.command:
     cmd: swapoff -a
@@ -56,6 +61,8 @@
       - conntrack
     state: present
 
+# Pin kubelet/kubeadm/kubectl versions to prevent unattended-upgrades from
+# upgrading them independently, which could cause version skew in the cluster
 - name: install | Hold Kubernetes packages
   ansible.builtin.dpkg_selections:
     name: "{{ item }}"
@@ -65,6 +72,8 @@
     - kubeadm
     - kubectl
 
+# overlay: required by containerd for its overlay filesystem driver
+# br_netfilter: enables iptables to process bridged traffic for pod networking
 - name: install | Load required kernel modules
   ansible.builtin.copy:
     content: |
@@ -81,6 +90,8 @@
     - br_netfilter
   changed_when: false
 
+# Enable bridged traffic to traverse iptables rules (required for pod-to-pod
+# and pod-to-service communication) and enable IP forwarding for routing
 - name: install | Configure sysctl for Kubernetes
   ansible.builtin.copy:
     content: |
@@ -95,6 +106,9 @@
     cmd: sysctl --system
   changed_when: false
 
+# Generate the default containerd config then switch the cgroup driver to systemd,
+# which is required so containerd and kubelet use the same cgroup manager.
+# Mismatched cgroup drivers cause kubelet to fail during pod creation.
 - name: install | Configure containerd
   block:
     - name: Create containerd directory
@@ -130,12 +144,16 @@
     state: started
 
 # --- Initialize control plane ---
+# Force-reset any prior kubeadm state so init starts from a clean slate.
+# ignore_errors handles the case where kubeadm was never initialized.
 - name: install | Reset kubeadm (clean state)
   ansible.builtin.command:
     cmd: kubeadm reset -f
   changed_when: true
   ignore_errors: true
 
+# Remove stale CNI virtual interfaces and network state left over from a
+# previous cluster; lingering interfaces cause IP conflicts on reinit
 - name: install | Clean CNI interfaces
   ansible.builtin.shell: |
     ip link delete cni0 2>/dev/null || true
@@ -173,6 +191,8 @@
     group: "{{ ssh_user }}"
     mode: '0300'
 
+# Check for admin.conf to confirm the control plane was initialized successfully
+# before attempting to generate a join token for workers
 - name: install | Check if cluster is already initialized
   ansible.builtin.stat:
     path: /etc/kubernetes/admin.conf
@@ -181,6 +201,8 @@
   become: true
   when: inventory_hostname in groups['controllers']
 
+# Generate a short-lived bootstrap token and the full join command.
+# Only runs on the controller and only if the cluster is initialized.
 - name: install | Get join command from control plane
   ansible.builtin.command:
     cmd: kubeadm token create --print-join-command
@@ -190,6 +212,7 @@
   become: true
   when: inventory_hostname in groups['controllers'] and k8s_config.stat.exists
 
+# Cache the join command as a fact so it is available on all hosts (including workers)
 - name: install | Set join command fact
   ansible.builtin.set_fact:
     join_command: "{{ join_command_raw.stdout }}"
@@ -212,6 +235,8 @@
   run_once: true
 
 # --- Join worker nodes ---
+# Reset workers before joining to clear any stale cluster membership.
+# ignore_errors handles workers that were never part of a cluster.
 - name: install | Reset kubeadm on worker
   ansible.builtin.command:
     cmd: kubeadm reset -f
@@ -219,6 +244,7 @@
   ignore_errors: true
   when: inventory_hostname in groups['workers']
 
+# Clean up stale CNI state on workers (same rationale as the controller cleanup)
 - name: install | Clean CNI interfaces on worker
   ansible.builtin.shell: |
     ip link delete cni0 2>/dev/null || true
@@ -229,10 +255,14 @@
   changed_when: false
   when: inventory_hostname in groups['workers']
 
+# Brief pause to let the control plane API server and Flannel CNI stabilize
+# after initialization before workers attempt to join
 - name: install | Wait for control plane to be ready before joining workers
   ansible.builtin.shell: |
     sleep 15
 
+# Re-generate the join token immediately before joining to avoid token expiry
+# issues; delegates to the first controller since only it can create tokens
 - name: install | Get fresh join command
   ansible.builtin.command:
     cmd: kubeadm token create --print-join-command
@@ -246,6 +276,9 @@
     join_command: "{{ fresh_join_command.stdout }}"
   run_once: true
 
+# Retry the join up to 3 times (15s apart) to handle transient API server
+# unavailability right after init. --ignore-preflight-errors=all skips checks
+# that may fail on a freshly-reset node (e.g. port in use, existing config).
 - name: install | Join worker to cluster with retries
   ansible.builtin.shell: |
     {{ join_command }} --ignore-preflight-errors=all
@@ -257,6 +290,8 @@
   delay: 15
   until: join_result.rc == 0
 
+# Verify cluster membership by listing all registered nodes.
+# Delegated to localhost using the fetched kubeconfig so it works outside the VMs.
 - name: install | Get all node names
   ansible.builtin.command:
     cmd: kubectl get nodes -o jsonpath='{.items[*].metadata.name}'

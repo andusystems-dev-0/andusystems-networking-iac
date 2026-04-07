@@ -6,8 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Deployment Scripts section in README documenting purpose, usage, prerequisites, and flags for each script
+
 ### Fixed
 - Enabled Traefik CRD installation by uncommenting `installCRDs: true` in Traefik values
+
+### Changed
+- Added inline comments explaining complex logic in Ansible roles (retries, conditionals, blocks, CRD polling)
 
 ## [2026-03-23]
 

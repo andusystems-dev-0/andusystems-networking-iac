@@ -1,4 +1,6 @@
 ---
+# Use server-side apply with --force-conflicts to safely install/upgrade CRDs
+# even when field ownership conflicts exist from a prior Helm or manual install
 - name: Install Prometheus Operator CRDs
   command: kubectl apply --server-side --force-conflicts -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.79.2/stripped-down-crds.yaml
   environment:
@@ -6,6 +8,8 @@
   register: crds_install
   changed_when: "'configured' in crds_install.stdout or 'created' in crds_install.stdout"
 
+# Install the remaining CRDs individually; these are not included in the
+# stripped-down bundle but are required for full Prometheus Operator functionality
 - name: Install full Prometheus Operator CRDs (Alertmanager, Prometheus, etc.)
   command: >
     kubectl apply --server-side --force-conflicts -f
@@ -22,6 +26,8 @@
   register: full_crds_install
   changed_when: "'configured' in full_crds_install.stdout or 'created' in full_crds_install.stdout"
 
+# Poll until each CRD is registered in the API server (up to 5 minutes per CRD).
+# The Helm chart install will fail if these CRDs are not yet available.
 - name: Wait for Prometheus Operator CRDs to be registered
   command: kubectl get crd {{ item }}
   environment:

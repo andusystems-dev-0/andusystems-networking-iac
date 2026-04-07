@@ -73,6 +73,72 @@ ansible-galaxy collection install -r ansible/requirements.yml
 
 Each script wraps `ansible-playbook` with the correct inventory and playbook. See [docs/development.md](docs/development.md) for details.
 
+## Deployment Scripts
+
+All scripts are located in the `scripts/` directory and invoke `ansible-playbook` with the appropriate inventory, playbook, and tags.
+
+### Prerequisites
+
+Before running any script, ensure the following are in place:
+
+- **Ansible** installed and the Galaxy dependencies from `ansible/requirements.yml` have been installed.
+- **Ansible Vault password** available — the inventory references vault-encrypted variables.
+- **SSH key pair** configured for passwordless access to the target VMs (required by `redeploy.sh`, `vms.sh`, and `kubernetes.sh`).
+- **Proxmox API credentials** set in the vault (`proxmox_api_token_id` / `proxmox_api_token_secret`) for VM provisioning.
+
+### `scripts/redeploy.sh`
+
+Performs a **full end-to-end deployment**: provisions VMs, bootstraps the Kubernetes cluster, and deploys all applications in a single run.
+
+```bash
+./scripts/redeploy.sh
+```
+
+- **Playbook:** `ansible/configurations/networking.yml`
+- **Tags:** `vms`, `kubernetes`, `metallb`, `apps`, `install`
+- **Prompts for become password** (`-K`) — required for system-level operations on the VMs.
+
+Use this script for first-time deployments or when you need to rebuild the entire stack from scratch.
+
+### `scripts/vms.sh`
+
+Provisions **VMs on Proxmox** via Terraform. This is the first stage of the deployment pipeline.
+
+```bash
+./scripts/vms.sh
+```
+
+- **Playbook:** `ansible/configurations/roles/vms.yml`
+- **Tags:** `vms`
+- **Prompts for become password** (`-K`).
+- **Requires** Proxmox API credentials in the vault.
+
+### `scripts/kubernetes.sh`
+
+Bootstraps the **Kubernetes cluster** on already-provisioned VMs. Installs kubeadm, kubelet, containerd, initializes the control plane, joins worker nodes, and deploys the Flannel CNI.
+
+```bash
+./scripts/kubernetes.sh
+```
+
+- **Playbook:** `ansible/configurations/roles/kubernetes.yml`
+- **Tags:** `kubernetes`, `install`
+- **Prompts for become password** (`-K`) — required for package installation and cluster initialization.
+- **Requires** VMs to be provisioned and reachable via SSH.
+
+### `scripts/apps.sh`
+
+Deploys the **application stack** (MetalLB, Longhorn, Cert-Manager, Pi-hole, observability stack, etc.) onto an existing Kubernetes cluster.
+
+```bash
+./scripts/apps.sh
+```
+
+- **Playbook:** `ansible/configurations/apps.yml`
+- **Tags:** `apps`, `install`
+- **Does not** prompt for a become password — application deployments run against the Kubernetes API via `kubectl`/`helm`.
+- **Requires** a running Kubernetes cluster and a valid `kubeconfig`.
+
 ## Configuration Reference
 
 All sensitive and environment-specific values are stored in Ansible Vault. The table below lists the configuration keys defined in `ansible/inventory/networking/group_vars/all/vars.yml`:
