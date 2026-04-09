@@ -1,7 +1,4 @@
 # --- Terraform: Install Helm Charts ---
-# Destroy existing Helm releases first to ensure a clean apply.
-# Retries (5x, 15s apart) handle transient Terraform provider or API errors.
-# ignore_errors allows the play to continue even if nothing exists to destroy.
 - name: Terraform destroy (layer-2-helmapps)
   community.general.terraform:
     project_path: "{{ repo_root }}/terraform/layers/layer-2-helmapps"
@@ -15,8 +12,6 @@
   until: tf_destroy is not failed
   ignore_errors: true
 
-# Apply the Helm chart layer with retries (2x, 10s apart) to recover from
-# intermittent Kubernetes API timeouts or Helm release conflicts.
 - name: Terraform apply (layer-2-helmapps)
   community.general.terraform:
     project_path: "{{ repo_root }}/terraform/layers/layer-2-helmapps"
@@ -30,8 +25,6 @@
   until: tf_apply is not failed
   ignore_errors: true
 
-# Apply the MetalLB L2 address pool and speaker configuration after Helm charts
-# are in place, so MetalLB can start assigning LoadBalancer IPs
 - name: install | Install Metallb Manifest
   kubernetes.core.k8s:
     state: present

@@ -1,5 +1,3 @@
-# Install CRDs before the Helm chart so cert-manager controllers can find
-# their custom resource definitions on startup
 - name: Install cert-manager CRDs
   command: kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.crds.yaml
   environment:
@@ -18,9 +16,6 @@
   environment:
     KUBECONFIG: "{{ kubeconfig }}"
 
-# Store the Cloudflare API token as a Kubernetes secret so the cert-manager
-# DNS-01 solver can authenticate to Cloudflare for ACME challenges.
-# no_log prevents the token value from being printed in Ansible output.
 - name: Create Cloudflare API token secret on management cluster
   kubernetes.core.k8s:
     state: present
@@ -44,8 +39,6 @@
   environment:
     KUBECONFIG: "{{ kubeconfig }}"
 
-# Poll until the ClusterIssuer CRD is available (up to 5 minutes).
-# The subsequent ClusterIssuer resource cannot be created until this CRD is registered.
 - name: Wait for ClusterIssuer CRD to be registered
   command: kubectl get crd clusterissuers.cert-manager.io
   environment:

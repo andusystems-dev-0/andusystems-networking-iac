@@ -2,8 +2,7 @@
 # Create VMs on Proxmox
 # --- Terraform: Create VMs ---
 
-# Provision VMs via Terraform. Retries (5x, 15s apart) handle transient Proxmox
-# API errors or lock contention that can occur during parallel VM creation.
+
 - name: Terraform apply (layer-1-infrastructure)
   community.general.terraform:
     project_path: "{{ repo_root }}/terraform/layers/layer-1-infrastructure"
@@ -16,8 +15,6 @@
   delay: 15
   until: tf_apply is not failed
 
-# Map each VM IP to its hostname so Ansible can reach the VMs by name.
-# Uses zip to pair the vm_ips list with the corresponding hostnames.
 - name: install | Add hosts entry for vms
   ansible.builtin.lineinfile:
     path: '/etc/hosts'
@@ -25,8 +22,6 @@
     state: present
   loop: "{{ vm_ips | zip(['networkingctrl', 'networkingwrkr0', 'networkingwrkr1', 'networkingwrkr2', 'networkingwrkr3', 'networkingwrkr4']) | list }}"
 
-# Clear stale known_hosts entries before scanning, so we don't end up with
-# host key conflicts when VMs are recreated with new keys
 - name: install | Remove any existing known_hosts entries for VMs
   ansible.builtin.known_hosts:
     name: "{{ item }}"
@@ -34,9 +29,6 @@
   loop: "{{ vm_ips }}"
   become: false
 
-# Scan SSH host keys with retries (4x, 15s apart) because freshly provisioned
-# VMs may not have their SSH daemon ready immediately after Terraform completes.
-# ignore_errors allows the play to continue if a VM is still booting.
 - name: install | Get SSH host key for VMs
   ansible.builtin.command: "ssh-keyscan -H {{ item }}"
   loop: "{{ vm_ips }}"
@@ -56,8 +48,6 @@
   loop: "{{ ssh_keyscan.results }}"
   become: false
 
-# Copy the SSH public key to each VM so subsequent Ansible connections
-# can authenticate without a password
 - name: install | ssh-copy-id to vms
   ansible.builtin.shell: "ssh-copy-id -i {{ ssh_key_path }} {{ ssh_user }}@{{ item }}"
   loop: "{{ vm_ips }}"
