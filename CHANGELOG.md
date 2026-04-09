@@ -1,75 +1,74 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
+All notable changes to the andusystems-networking project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
 ### Added
-- Deployment Scripts section in README documenting purpose, usage, prerequisites, and flags for each script
-
-### Fixed
-- Enabled Traefik CRD installation by uncommenting `installCRDs: true` in Traefik values
-
-### Changed
-- Added inline comments explaining complex logic in Ansible roles (retries, conditionals, blocks, CRD polling)
-
-## [2026-03-23]
-
-### Fixed
-- Exposed Prometheus and Tempo LoadBalancer IPs in Helm values for external access
-
-## [2026-03-17]
-
-### Added
-- LGTM observability stack: Loki, Tempo, Alloy, and kube-prometheus-stack roles and Helm values
-- Loki deployment with S3-compatible storage backend and log retention configuration
-
-### Fixed
-- Loki configuration fixes for single-binary deployment mode
-- Loki values corrections for replica count, LoadBalancer exposure, and storage settings
-- Multiple LGTM stack integration fixes for monitoring application connectivity
-
-## [2026-03-15]
-
-### Added
-- LoadBalancer service restoration for external access
+- Deployment Scripts section in README.
+- Inline comments explaining complex Ansible logic.
+- Inline comments to Terraform `variables.tf` files.
+- RBAC configuration comments in Traefik values.
 
 ### Changed
-- Pi-hole Helm values updated for external DNS access
-- Homepage values configuration update
+- Consolidated duplicate Terraform variables into shared file.
+- Consolidated common variables between layer-1 and layer-2 Terraform configurations.
+- Consolidated Pi-hole LoadBalancer IP to Helm `values.yml` as single source of truth.
+- Enabled Traefik CRD installation.
+- Extracted common Ansible task includes and split large task files.
 
-### Fixed
-- Pi-hole LoadBalancer IP assignment
-- Pi-hole pod network CIDR configuration
-
-## [2026-03-14]
-
-### Added
-- Pi-hole DNS filtering deployment with Traefik ingress and HTTPS
-- Pi-hole blocklists configuration (StevenBlack, Hagezi, OISD, URLhaus, ThreatFox)
-- Traefik IngressRoute for Pi-hole web interface
+## [0.4.0] - 2026-03-23
 
 ### Changed
-- Pi-hole updated to use LoadBalancer IP via MetalLB
-- Pi-hole Helm repository configuration updates
-- Networking configuration updates for cluster setup
-- Terraform destroy step restored in VM provisioning role
-- Repository renamed from fleetdock to networking
+- Exposed Prometheus and Tempo values to include LoadBalancer IPs for external access.
 
-### Fixed
-- Pi-hole DNS values and LoadBalancer exposure
-
-## [2026-03-14] - Initial Release
+## [0.3.0] - 2026-03-17
 
 ### Added
-- Initial repository structure with Ansible and Terraform configuration
-- VM provisioning on Proxmox via Terraform
-- Kubernetes cluster bootstrapping with kubeadm and Flannel CNI
-- MetalLB L2 load balancer deployment
-- Longhorn distributed storage deployment
-- Cert-Manager with Let's Encrypt ACME and Cloudflare DNS-01
-- Pangolin-Newt VPN tunnel deployment
-- Ansible inventory with vault-based secret management
-- Deployment scripts for VMs, Kubernetes, and applications
+- Loki log aggregation deployment with MinIO S3 backend.
+- Tempo distributed tracing deployment with MinIO S3 backend.
+- Kube-Prometheus-Stack metrics collection.
+- Grafana Alloy telemetry collector deployment.
+- LGTM (Loki, Grafana, Tempo, Mimir) stack values and deployment configuration.
+
+### Fixed
+- Fixed Loki configuration for log ingestion.
+- Fixed Loki Helm values for schema and storage settings.
+- Fixed issues with the LGTM stack integration.
+- Removed Loki replicas (switched to single-binary mode).
+- Updated Loki values for LoadBalancer IP exposure.
+
+## [0.2.0] - 2026-03-15
+
+### Added
+- Pi-hole DNS filtering deployment.
+- Pi-hole Helm values with DNS blocklists (StevenBlack, Hagezi, OISD, URLhaus, and others).
+- Pi-hole ingress via Traefik with TLS termination.
+- Pod CIDR configuration in Pi-hole Helm values.
+- LoadBalancer service for Pi-hole DNS access.
+
+### Changed
+- Updated Pi-hole to use Traefik for HTTP/HTTPS exposure.
+- Updated Pi-hole Helm chart repository source.
+- Updated Pi-hole DNS values and LoadBalancer configuration.
+
+### Fixed
+- Fixed LoadBalancer IP assignment in Pi-hole values.
+
+## [0.1.0] - 2026-03-14
+
+### Added
+- Initial repository structure and Ansible configuration.
+- Proxmox VM provisioning via Terraform (layer-1-infrastructure).
+- Kubernetes cluster bootstrapping with kubeadm and Flannel CNI.
+- MetalLB bare-metal LoadBalancer (Layer 2 mode) via Terraform (layer-2-helmapps).
+- Longhorn distributed block storage.
+- Cert-Manager with Let's Encrypt and Cloudflare DNS-01 challenges.
+- Pangolin-Newt VPN tunnel deployment.
+- Traefik ingress controller.
+- FleetDock application values.
+- Ansible inventory with controller and worker node definitions.
+- Ansible Vault integration for secret management.
+- Networking and apps playbooks with ordered role execution.

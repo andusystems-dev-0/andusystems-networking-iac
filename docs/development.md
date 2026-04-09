@@ -2,32 +2,33 @@
 
 ## Prerequisites
 
-| Tool | Version | Purpose |
+| Tool | Version | Install |
 |------|---------|---------|
-| Ansible | 2.15+ | Orchestration and configuration management |
-| Terraform | 1.5+ | VM provisioning and Helm deployment |
-| kubectl | Matching cluster version | Kubernetes CLI |
-| Helm | 3.x | Kubernetes package manager |
-| Python 3 | 3.10+ | Required by Ansible |
-| `kubernetes` Python package | Latest | Required by `kubernetes.core` Ansible collection |
-| SSH client | Any | Access to provisioned VMs |
+| Ansible | 2.15+ | `pip install ansible` |
+| Terraform | 1.5+ | [terraform.io](https://developer.hashicorp.com/terraform/install) |
+| kubectl | 1.31+ | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/) |
+| Python | 3.10+ | System package manager |
+| ansible-vault | (bundled) | Included with Ansible |
+| Helm | 3.x | [helm.sh](https://helm.sh/docs/intro/install/) |
 
-### Ansible Collections
+## Initial Setup
 
-Install required Ansible collections:
+### 1. Clone the Repository
+
+```bash
+git clone <repository-url>
+cd andusystems-networking
+```
+
+### 2. Install Ansible Collections
 
 ```bash
 ansible-galaxy collection install -r ansible/requirements.yml
 ```
 
-This installs:
-- `kubernetes.core` - provides `k8s` module for applying Kubernetes manifests
+This installs the `kubernetes.core` collection required for Kubernetes module operations.
 
-## Environment Setup
-
-### 1. Ansible Vault
-
-All secrets are managed via Ansible Vault. Create and encrypt your vault file:
+### 3. Configure Secrets
 
 ```bash
 cp ansible/inventory/networking/group_vars/all/vault.example \
@@ -40,189 +41,213 @@ Edit `vault.yml` with your environment values, then encrypt:
 ansible-vault encrypt ansible/inventory/networking/group_vars/all/vault.yml
 ```
 
-To edit an encrypted vault:
+To edit later:
 
 ```bash
 ansible-vault edit ansible/inventory/networking/group_vars/all/vault.yml
 ```
 
-### 2. Terraform Variables
+See the [Configuration Reference](../README.md#configuration-reference) in the README for all required vault variables.
 
-Terraform is invoked by Ansible roles (notably `vms` and `metallb`). Terraform variable files (`.tfvars`) should be configured and their path set in the vault as `repo_root` and `tfvars_file`.
+### 4. Verify Connectivity
 
-### 3. SSH Keys
-
-Ensure an SSH key pair exists and the public key path is configured in the Terraform variables. The `vms` role uses `ssh-copy-id` to establish passwordless access to all provisioned VMs.
-
-### 4. Kubeconfig
-
-After cluster bootstrapping, the `kubernetes` role fetches the kubeconfig to your local machine. The path is configured via the `kubeconfig` vault variable and used by subsequent roles to interact with the cluster.
-
-## Deployment Commands
-
-### Full Stack Deployment
-
-Provisions VMs, bootstraps Kubernetes, and deploys all applications:
+Ensure SSH access to all target nodes:
 
 ```bash
-./scripts/redeploy.sh
+ansible all -i ansible/inventory/networking/hosts.yml -m ping --ask-vault-pass
 ```
 
-### Infrastructure Only
+## Deployment Workflows
 
-Provision VMs on Proxmox:
+### Full Infrastructure Deployment
 
-```bash
-./scripts/vms.sh
-```
-
-### Kubernetes Only
-
-Bootstrap the Kubernetes cluster (assumes VMs are already provisioned):
+Provisions VMs, bootstraps Kubernetes, and installs all base networking components:
 
 ```bash
-./scripts/kubernetes.sh
-```
-
-### Applications Only
-
-Deploy all platform services (assumes a running Kubernetes cluster):
-
-```bash
-./scripts/apps.sh
-```
-
-### Running Playbooks Directly
-
-For more granular control, run Ansible playbooks directly:
-
-```bash
-# Full infrastructure + networking stack
 ansible-playbook ansible/configurations/networking.yml \
   -i ansible/inventory/networking/hosts.yml \
   --ask-vault-pass
+```
 
-# Applications only
+**Execution order:** VMs → Kubernetes → MetalLB → Longhorn → Cert-Manager → Pangolin-Newt → Pi-hole
+
+### Application Stack Deployment
+
+Deploys the observability stack and application services. Requires the base infrastructure to be running:
+
+```bash
 ansible-playbook ansible/configurations/apps.yml \
   -i ansible/inventory/networking/hosts.yml \
   --ask-vault-pass
 ```
 
+**Execution order:** Longhorn → Cert-Manager → Pangolin-Newt → Kube-Prometheus-Stack → Loki → Tempo → Alloy → Pi-hole
+
 ### Running a Single Role
 
-To deploy a single component, limit the playbook run with tags or by running the role playbook directly. Each role has a top-level playbook (e.g., `ansible/configurations/roles/loki.yml`) that can be imported or used as reference.
+To deploy or update a specific component, run its role directly:
 
-## Playbook Structure
-
-### networking.yml (Infrastructure Playbook)
-
-Executes in order:
-
-1. **vms** - Provision VMs on Proxmox via Terraform
-2. **kubernetes** - Install and initialize the Kubernetes cluster
-3. **metallb** - Deploy MetalLB L2 load balancer
-4. **longhorn** - Deploy distributed storage
-5. **cert-manager** - Deploy TLS certificate automation
-6. **pangolin-newt** - Deploy VPN tunnel
-7. **pihole** - Deploy DNS filtering
-
-### apps.yml (Application Playbook)
-
-Executes in order:
-
-1. **longhorn** - Distributed storage
-2. **cert-manager** - TLS automation
-3. **pangolin-newt** - VPN
-4. **kube-prometheus-stack** - Prometheus, AlertManager, node exporters
-5. **loki** - Log aggregation
-6. **tempo** - Distributed tracing
-7. **alloy** - Telemetry collectors
-8. **pihole** - DNS filtering
-
-## Ansible Role Structure
-
-Each role follows a consistent layout:
-
-```
-roles/<name>/
-├── defaults/
-│   └── main.yml     # Default variables (optional)
-├── tasks/
-│   ├── main.yml     # Task entry point
-│   └── install.yml  # Installation tasks
-└── <name>.yml       # Role-level playbook wrapper
+```bash
+ansible-playbook ansible/configurations/roles/<role-name>.yml \
+  -i ansible/inventory/networking/hosts.yml \
+  --ask-vault-pass
 ```
 
-The role-level playbook (e.g., `roles/loki.yml`) sets the target hosts and invokes the role via `include_role`.
+For example, to redeploy only Pi-hole:
 
-## Helm Values and Manifests
-
-Application configuration is split between two file types in the `apps/` directory:
-
-| File | Purpose |
-|------|---------|
-| `values.yml` | Helm chart value overrides |
-| `manifest.yml` | Raw Kubernetes manifests (Secrets, CRDs, IngressRoutes) applied via `kubernetes.core.k8s` |
-
-Manifests use Jinja2 templating (`{{ variable }}`) and are rendered by Ansible at deploy time, enabling secret injection from the vault without committing sensitive values.
-
-## Configuration Patterns
-
-### Secret Injection
-
-Secrets flow through the system as follows:
-
-```
-Ansible Vault (encrypted)
-  └── group_vars/all/vars.yml (references vault_ variables)
-       └── Ansible tasks (inject into manifests/Helm values)
-            └── Kubernetes Secrets (created via manifest.yml)
+```bash
+ansible-playbook ansible/configurations/roles/pihole.yml \
+  -i ansible/inventory/networking/hosts.yml \
+  --ask-vault-pass
 ```
 
-Sensitive tasks use `no_log: true` to prevent secrets from appearing in Ansible output.
+### Targeting Specific Hosts
 
-### StorageClass
+Use `--limit` to restrict execution to specific inventory groups:
 
-All stateful applications use the `longhorn` StorageClass for persistent volumes. Longhorn is configured as the default StorageClass cluster-wide.
+```bash
+# Only run on worker nodes
+ansible-playbook ansible/configurations/networking.yml \
+  -i ansible/inventory/networking/hosts.yml \
+  --limit workers \
+  --ask-vault-pass
 
-### LoadBalancer Services
+# Only run on the control plane
+ansible-playbook ansible/configurations/networking.yml \
+  -i ansible/inventory/networking/hosts.yml \
+  --limit controllers \
+  --ask-vault-pass
+```
 
-Services requiring external access use `type: LoadBalancer` with fixed IP assignments from the MetalLB IP pool. The IP range is configured via the `metallb_ip_range` vault variable.
+## Environment Variables
 
-## Modifying an Existing Application
+Ansible behavior is configured through `ansible/ansible.cfg`:
 
-1. Edit the Helm values in `apps/<name>/values.yml`
-2. If Kubernetes manifests need changes, edit `apps/<name>/manifest.yml`
-3. Run the application playbook:
-   ```bash
-   ./scripts/apps.sh
-   ```
+| Setting | Value | Description |
+|---------|-------|-------------|
+| `host_key_checking` | `False` | Disables SSH host key verification (VMs are frequently reprovisioned) |
+| `log_path` | `ansible.log` | All Ansible output is logged to this file |
 
-## Adding a New Application
+Additional environment variables can be set as needed:
 
-1. Create `apps/<name>/values.yml` with Helm value overrides
-2. Optionally create `apps/<name>/manifest.yml` for additional Kubernetes resources
-3. Create the Ansible role structure under `ansible/configurations/roles/<name>/`
-4. Add the role import to `ansible/configurations/apps.yml`
-5. Add any required vault variables to `group_vars/all/vars.yml`
-6. Run the deployment
+| Variable | Description |
+|----------|-------------|
+| `ANSIBLE_VAULT_PASSWORD_FILE` | Path to a file containing the vault password (avoids `--ask-vault-pass`) |
+| `ANSIBLE_CONFIG` | Override path to `ansible.cfg` |
+| `KUBECONFIG` | Path to cluster kubeconfig (set automatically after Kubernetes role runs) |
+
+## Project Structure
+
+### Ansible Roles
+
+Each role follows the same structure:
+
+```
+roles/<component>/
+  ├── tasks/
+  │   ├── main.yml      # Entry point (imports install.yml)
+  │   └── install.yml   # Installation logic
+  └── defaults/
+      └── main.yml      # Default variables (if any)
+```
+
+Role wrapper playbooks live at `roles/<component>.yml` and set the target hosts and import the role.
+
+### Application Configuration
+
+Helm values and Kubernetes manifests live under `apps/<component>/`:
+
+```
+apps/<component>/
+  ├── values.yml       # Helm chart values
+  └── manifest.yml     # Raw Kubernetes manifests (Secrets, CRDs, etc.)
+```
+
+Manifests may contain Jinja2 templates (e.g. `{{ metallb_ip_range }}`) that are rendered by Ansible at apply time.
+
+### Inventory
+
+```
+ansible/inventory/networking/
+  ├── hosts.yml                    # Node definitions (controllers, workers)
+  └── group_vars/all/
+      ├── vars.yml                 # Variable mapping (vault → playbook vars)
+      └── vault.example            # Template for vault secrets
+```
+
+The `hosts.yml` file defines node groups: `controllers` (single control-plane node) and `workers` (multiple worker nodes). All host IPs are sourced from vault variables.
+
+## Modifying Helm Values
+
+To change the configuration of a deployed component:
+
+1. Edit the relevant `apps/<component>/values.yml` file
+2. Re-run the component's role or the full `apps.yml` playbook
+3. The role applies the updated Helm values via Terraform or `kubectl apply`
+
+### Key Helm Chart Sources
+
+| Component | Chart | Repository |
+|-----------|-------|------------|
+| Longhorn | `longhorn/longhorn` | Longhorn Helm repo |
+| Cert-Manager | `jetstack/cert-manager` | Jetstack Helm repo |
+| MetalLB | `metallb/metallb` | MetalLB Helm repo |
+| Kube-Prometheus-Stack | `prometheus-community/kube-prometheus-stack` | Prometheus Community |
+| Loki | `grafana/loki` | Grafana Helm repo |
+| Tempo | `grafana/tempo` | Grafana Helm repo |
+| Alloy | `grafana/k8s-monitoring` | Grafana Helm repo |
+| Traefik | `traefik/traefik` | Traefik Helm repo |
+| Pi-hole | `mojo2600/pihole` | Pi-hole Helm repo |
+
+## Adding a New Component
+
+1. Create the Helm values file at `apps/<component>/values.yml`
+2. If raw manifests are needed, create `apps/<component>/manifest.yml`
+3. Create the Ansible role under `ansible/configurations/roles/<component>/`
+   - `tasks/main.yml` -- import install tasks
+   - `tasks/install.yml` -- namespace creation, CRD installation, manifest application
+4. Create the role wrapper playbook at `ansible/configurations/roles/<component>.yml`
+5. Add the role import to `ansible/configurations/apps.yml` (or `networking.yml` for infrastructure components)
 
 ## Troubleshooting
 
-### Vault Password
+### Ansible Connection Failures
 
-If deployment fails with a vault decryption error, ensure you are providing the correct vault password. Use `--ask-vault-pass` or set `ANSIBLE_VAULT_PASSWORD_FILE`.
+The VMs role configures SSH keys and known_hosts entries. If connections fail after reprovisioning:
 
-### Kubernetes Connectivity
+```bash
+# Clear stale SSH keys for a host
+ssh-keygen -R <hostname>
+# Re-run the VMs role to refresh keys
+ansible-playbook ansible/configurations/roles/vms.yml \
+  -i ansible/inventory/networking/hosts.yml \
+  --ask-vault-pass
+```
 
-If roles that apply Kubernetes manifests fail, verify:
-- The kubeconfig path in vault is correct
-- The cluster is reachable from the Ansible control node
-- The kubeconfig has been fetched (run the `kubernetes` role first)
+### Kubernetes Join Failures
 
-### Helm Chart Failures
+Worker join is retried 3 times with a 15-second delay. If workers fail to join:
 
-If a Helm deployment fails, check:
-- Network connectivity from the cluster to Helm chart repositories
-- That CRDs are installed before the chart that depends on them (the playbook ordering handles this)
-- Available storage (Longhorn must be healthy before deploying stateful apps)
+```bash
+# Check control plane status
+kubectl get nodes
+# View join token
+kubeadm token list
+# Re-run the Kubernetes role
+ansible-playbook ansible/configurations/roles/kubernetes.yml \
+  -i ansible/inventory/networking/hosts.yml \
+  --ask-vault-pass
+```
+
+### CRD Registration Delays
+
+Roles that install CRDs (cert-manager, kube-prometheus-stack) include wait loops (30 retries, 10-second delay). If a CRD fails to register, check:
+
+```bash
+kubectl get crd | grep <component>
+kubectl describe crd <crd-name>
+```
+
+### Checking Logs
+
+Ansible logs all output to `ansible.log` in the repository root. Review it for detailed error output from failed tasks.
