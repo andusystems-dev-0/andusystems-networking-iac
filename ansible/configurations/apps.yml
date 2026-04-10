@@ -1,8 +1,10 @@
 - import_playbook: ./roles/longhorn.yml
 - import_playbook: ./roles/cert-manager.yml
 - import_playbook: ./roles/pangolin-newt.yml
-- import_playbook: ./roles/kube-prometheus-stack.yml
+# kube-prometheus-stack + alloy are deployed to this cluster by management's
+# ArgoCD (networking-* apps). Local role dirs don't exist here.
+# - import_playbook: ./roles/kube-prometheus-stack.yml
 - import_playbook: ./roles/loki.yml
 - import_playbook: ./roles/tempo.yml
-- import_playbook: ./roles/alloy.yml
+# - import_playbook: ./roles/alloy.yml
 - import_playbook: ./roles/pihole.yml
