@@ -43,6 +43,8 @@ newt_secret: "{{ vault_newt_secret }}"
 
 metallb_ip_range: "{{ vault_metallb_ip_range }}"
 
+networking_traefik_server_ip: "{{ vault_networking_traefik_server_ip }}"
+
 homepage_url: "{{ vault_homepage_url }}"
 pihole_url: "{{ vault_pihole_url }}"
 

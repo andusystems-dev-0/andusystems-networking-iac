@@ -1,0 +1,11 @@
+- name: Install Traefik
+  gather_facts: true
+  hosts: localhost
+  tasks:
+
+    - include_role:
+        name: traefik
+      tags:
+        - traefik
+        - apps
+        - install

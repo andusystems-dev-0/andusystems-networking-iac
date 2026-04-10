@@ -7,4 +7,5 @@
 - import_playbook: ./roles/loki.yml
 - import_playbook: ./roles/tempo.yml
 # - import_playbook: ./roles/alloy.yml
+- import_playbook: ./roles/traefik.yml
 - import_playbook: ./roles/pihole.yml

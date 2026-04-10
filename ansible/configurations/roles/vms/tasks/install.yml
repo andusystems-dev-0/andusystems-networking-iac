@@ -2,7 +2,7 @@
 # Create VMs on Proxmox
 # --- Terraform: Create VMs ---
 - name: Terraform destroy (layer-1-infrastructure)
-  community.general.terraform:w
+  community.general.terraform:
     project_path: "{{ repo_root }}/terraform/layers/layer-1-infrastructure"
     variables_files:
       - "{{ repo_root }}/terraform/terraform.tfvars"

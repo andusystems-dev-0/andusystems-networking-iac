@@ -4,4 +4,5 @@
 - import_playbook: ./roles/longhorn.yml
 - import_playbook: ./roles/cert-manager.yml
 - import_playbook: ./roles/pangolin-newt.yml
+- import_playbook: ./roles/traefik.yml
 - import_playbook: ./roles/pihole.yml
