@@ -1,4 +1,17 @@
 ---
+- name: Create pihole namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: pihole
+        labels:
+          kubernetes.io/metadata.name: pihole
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+
 - name: Apply PiHole manifest
   kubernetes.core.k8s:
     state: present
