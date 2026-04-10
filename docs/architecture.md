@@ -1,210 +1,188 @@
 # Architecture
 
-## System Overview
+## Overview
 
-The networking cluster is a bare-metal Kubernetes deployment automated end-to-end with Ansible and Terraform. It serves two primary functions:
-
-1. **Network services** -- DNS filtering (Pi-hole), ingress routing (Traefik), TLS automation (cert-manager), and VPN access (Pangolin-Newt)
-2. **Observability** -- A full metrics/logs/traces pipeline (Prometheus, Loki, Tempo) unified by Grafana Alloy as the telemetry collector
-
-The cluster operates within a segmented multi-VLAN environment. Each VLAN hosts an independent Kubernetes cluster with a dedicated purpose (management, DMZ, public applications, storage, monitoring). This repository manages the networking/infrastructure VLAN.
+The networking cluster is a Kubernetes cluster dedicated to providing ingress, DNS, load balancing, TLS automation, and observability for a multi-cluster homelab environment. It is provisioned on a hypervisor via Terraform, bootstrapped with Ansible, and managed through GitOps.
 
 ## Component Diagram
 
 ```
+                          External Traffic
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │   Pangolin / Newt   │
+                    │    (VPN Tunnel)     │
+                    └─────────┬───────────┘
+                              │
+                              ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        Networking Cluster                           │
+│                       Networking Cluster                            │
 │                                                                     │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────────┐    │
-│  │ Control  │   │ Worker 0 │   │ Worker 1 │   │  Worker N... │    │
-│  │  Plane   │   │          │   │          │   │              │    │
-│  └────┬─────┘   └────┬─────┘   └────┬─────┘   └──────┬───────┘    │
-│       │              │              │                 │             │
-│       └──────────────┴──────────────┴─────────────────┘             │
-│                          Flannel CNI                                │
+│  ┌────────────────────────────────────────────────────────────┐    │
+│  │                      MetalLB (L2)                          │    │
+│  │              Assigns LoadBalancer IPs from pool             │    │
+│  └────────────────────┬───────────────────────────────────────┘    │
+│                       │                                             │
+│         ┌─────────────┼─────────────┬──────────────┐               │
+│         ▼             ▼             ▼              ▼               │
+│  ┌───────────┐ ┌───────────┐ ┌──────────┐ ┌────────────┐         │
+│  │  Traefik  │ │  Pi-hole  │ │   Loki   │ │ Prometheus │         │
+│  │  (Ingress)│ │   (DNS)   │ │  (Logs)  │ │ (Metrics)  │         │
+│  └─────┬─────┘ └───────────┘ └────┬─────┘ └──────┬─────┘         │
+│        │                          │               │                │
+│        │         ┌────────────────┼───────────────┤                │
+│        │         │                │               │                │
+│        │    ┌────┴─────┐   ┌─────┴────┐   ┌─────┴──────┐         │
+│        │    │  Tempo   │   │  Alloy   │   │ AlertMgr   │         │
+│        │    │ (Traces) │   │(Collect) │   │ (Alerts)   │         │
+│        │    └──────────┘   └──────────┘   └────────────┘         │
+│        │                                                          │
+│  ┌─────┴──────────────────────────────────────────────────┐      │
+│  │                   cert-manager                          │      │
+│  │         Let's Encrypt DNS-01 via Cloudflare             │      │
+│  └─────────────────────────────────────────────────────────┘      │
 │                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │                    Platform Layer                            │    │
-│  │  ┌─────────┐  ┌──────────┐  ┌─────────────┐  ┌──────────┐ │    │
-│  │  │ MetalLB │  │ Longhorn │  │Cert-Manager │  │ Traefik  │ │    │
-│  │  │  (L2)   │  │(Storage) │  │ (TLS/ACME)  │  │(Ingress) │ │    │
-│  │  └─────────┘  └──────────┘  └─────────────┘  └──────────┘ │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │                  Service Layer                              │    │
-│  │  ┌─────────┐  ┌───────────────┐                             │    │
-│  │  │ Pi-hole │  │ Pangolin-Newt │                             │    │
-│  │  │  (DNS)  │  │    (VPN)      │                             │    │
-│  │  └─────────┘  └───────────────┘                             │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │                Observability Layer                           │    │
-│  │                                                             │    │
-│  │  ┌──────────────────────────────────────────────────────┐   │    │
-│  │  │               Grafana Alloy                          │   │    │
-│  │  │  ┌────────────┐ ┌───────────┐ ┌──────────────────┐  │   │    │
-│  │  │  │  Metrics   │ │   Logs    │ │   Receiver       │  │   │    │
-│  │  │  │ DaemonSet  │ │ DaemonSet │ │  (OTLP ingest)   │  │   │    │
-│  │  │  └─────┬──────┘ └─────┬─────┘ └────────┬─────────┘  │   │    │
-│  │  │        │              │                 │            │   │    │
-│  │  │  ┌─────┴──────────────┴─────────────────┴─────────┐  │   │    │
-│  │  │  │              Singleton                          │  │   │    │
-│  │  │  │  (cluster events, annotation autodiscovery,     │  │   │    │
-│  │  │  │   Prometheus Operator objects)                   │  │   │    │
-│  │  │  └─────────────────────────────────────────────────┘  │   │    │
-│  │  └──────────────────────────────────────────────────────┘   │    │
-│  │           │                    │                  │          │    │
-│  │           ▼                    ▼                  ▼          │    │
-│  │    ┌────────────┐    ┌──────────────┐    ┌────────────┐     │    │
-│  │    │ Prometheus │    │     Loki     │    │   Tempo    │     │    │
-│  │    │  (metrics) │    │    (logs)    │    │  (traces)  │     │    │
-│  │    │  7d retain │    │  30d retain  │    │            │     │    │
-│  │    └──────┬─────┘    └──────┬───────┘    └──────┬─────┘     │    │
-│  │           │                 │                   │           │    │
-│  └───────────┼─────────────────┼───────────────────┼───────────┘    │
-│              │                 │                   │                │
-└──────────────┼─────────────────┼───────────────────┼────────────────┘
-               │                 │                   │
-               │                 ▼                   ▼
-               │          ┌─────────────────────────────┐
-               │          │   External Storage Cluster   │
-               │          │         (MinIO S3)           │
-               │          │  ┌──────────┐ ┌───────────┐ │
-               │          │  │ loki-data│ │tempo-data │ │
-               │          │  └──────────┘ └───────────┘ │
-               │          └─────────────────────────────┘
-               ▼
-        ┌─────────────────┐
-        │  Hub Grafana     │
-        │  (remote read)   │
-        └─────────────────┘
+│  ┌──────────────────────────────────────────────────────────┐      │
+│  │                     Longhorn                              │      │
+│  │            Distributed block storage (3 replicas)         │      │
+│  └──────────────────────────────────────────────────────────┘      │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────────┐
+                    │  External S3 Store  │
+                    │  (Loki + Tempo      │
+                    │   long-term data)   │
+                    └─────────────────────┘
 ```
+
+## Infrastructure Layers
+
+The cluster is provisioned and configured in two distinct layers:
+
+### Layer 1 — VM Provisioning (Terraform)
+
+Terraform provisions virtual machines on the Proxmox hypervisor:
+
+- **Control plane VM** — Runs the Kubernetes API server, scheduler, and controller manager
+- **Worker VMs** — Run workloads; configured with cloud-init for automated setup
+
+Each VM receives a static IP via cloud-init, is tagged for inventory grouping, and is bootstrapped with SSH keys for Ansible access.
+
+**Provider:** `bpg/proxmox` — manages VM lifecycle, cloud images, and network configuration.
+
+### Layer 2 — Helm Apps (Terraform)
+
+A minimal Terraform layer that deploys MetalLB via Helm. This is separated because MetalLB must be available before Ansible roles can assign LoadBalancer IPs to other services.
+
+### Application Layer (Ansible)
+
+All remaining applications are deployed via Ansible roles that apply Helm charts and Kubernetes manifests. This layer depends on both Terraform layers being complete.
 
 ## Data Flows
 
-### Metrics Pipeline
+### Ingress Flow
 
 ```
-Kubernetes Nodes
-  │
-  ├── node-exporter (from kube-prometheus-stack) ──► Prometheus
-  ├── kube-state-metrics ──────────────────────────► Prometheus
-  ├── kubelet metrics ─────────────────────────────► Prometheus
-  │
-  └── Alloy Metrics DaemonSet
-        ├── scrapes pods with prometheus.io/* annotations
-        ├── scrapes ServiceMonitors / PodMonitors
-        └── remote-writes ──► Prometheus (remote-write-receiver)
-                                   │
-                                   ├── 7-day local retention (Longhorn PVC)
-                                   └── LoadBalancer IP ──► Hub Grafana
+Internet ──► VPN Tunnel ──► Traefik (LB IP) ──► Kubernetes Service ──► Pod
+                                  │
+                                  ├── TLS terminated (cert-manager certs)
+                                  └── Routing via IngressRoute CRDs
 ```
 
-### Logs Pipeline
+Traefik acts as the sole ingress controller, receiving traffic through a MetalLB-assigned LoadBalancer IP. TLS certificates are automatically provisioned by cert-manager using Let's Encrypt with Cloudflare DNS-01 challenges. Routing rules are defined via Traefik IngressRoute CRDs with cross-namespace support.
+
+### DNS Flow
 
 ```
-Pod stdout/stderr
-  │
-  └── Alloy Logs DaemonSet
-        ├── collects container logs
-        └── pushes ──► Loki (push API)
+Client DNS Query ──► Pi-hole (LB IP) ──► Upstream resolvers (1.1.1.1, 8.8.8.8)
                           │
-Alloy Singleton            │
-  └── Kubernetes events ──►│
-                           │
-                           ├── 30-day retention
-                           └── S3 backend (MinIO on storage cluster)
+                          └── Blocklist filtering (19 curated lists)
+                              Query logging enabled
 ```
 
-### Traces Pipeline
+Pi-hole is exposed via a dedicated MetalLB LoadBalancer IP on the standard DNS port. It filters queries against comprehensive blocklists (StevenBlack, Hagezi, OISD, and others) before forwarding to upstream resolvers.
+
+### Observability Flow
 
 ```
-Application (OTLP instrumented)
-  │
-  └── Alloy Receiver (gRPC/HTTP on standard OTLP ports)
-        └── forwards ──► Tempo (OTLP receiver)
-                            │
-                            ├── Generates span metrics ──► Prometheus
-                            └── S3 backend (MinIO on storage cluster)
+┌─────────────┐     ┌─────────────┐     ┌───────────────┐
+│   Alloy     │────►│    Loki     │────►│  External S3  │
+│ (pod logs)  │     │ (log store) │     │  (long-term)  │
+└─────────────┘     └─────────────┘     └───────────────┘
+
+┌─────────────┐     ┌─────────────┐     ┌───────────────┐
+│   Alloy     │────►│   Tempo     │────►│  External S3  │
+│ (OTLP recv) │     │(trace store)│     │  (long-term)  │
+└─────────────┘     └─────────────┘     └───────────────┘
+
+┌─────────────┐     ┌──────────────┐
+│   Alloy     │────►│  Prometheus  │
+│ (metrics)   │     │ (metric TSDB)│
+└─────────────┘     └──────────────┘
 ```
+
+**Alloy** (Grafana's telemetry collector) is deployed by the management cluster and runs on every node. It collects:
+
+- **Metrics** — Scraped from node-exporter, kube-state-metrics, ServiceMonitors, and annotation-based autodiscovery. Written to the local Prometheus instance.
+- **Logs** — All pod stdout/stderr and Kubernetes events. Pushed to the local Loki instance.
+- **Traces** — Received via OTLP (gRPC and HTTP). Forwarded to the local Tempo instance.
+
+Loki and Tempo use an external S3-compatible object store for long-term data persistence. Prometheus retains metrics locally for 7 days with persistent volume storage.
+
+All three backends expose LoadBalancer IPs so that a centralized Grafana instance on the monitoring cluster can query them directly.
 
 ## Key Design Decisions
 
-### Bare-Metal Kubernetes with kubeadm
+### Two-Layer Terraform Approach
 
-The cluster is bootstrapped using kubeadm rather than a managed Kubernetes distribution. This provides full control over the cluster lifecycle and avoids vendor lock-in. Flannel is used as the CNI for its simplicity and low overhead.
+Infrastructure is split into two Terraform layers to enforce ordering:
 
-### MetalLB Layer 2 Mode
+1. **Layer 1** provisions VMs — must complete before Kubernetes can be bootstrapped
+2. **Layer 2** deploys MetalLB via Helm — must complete before any service can receive a LoadBalancer IP
 
-MetalLB operates in Layer 2 (ARP) mode rather than BGP. This simplifies the network configuration by not requiring router peering, and is sufficient for a single-subnet bare-metal deployment. Each service of type `LoadBalancer` receives an IP from the configured address pool.
+This separation prevents circular dependencies: Ansible roles need MetalLB IPs, but MetalLB needs a running cluster, which needs VMs.
 
-### Longhorn for Persistent Storage
+### Ansible-First Application Deployment
 
-Longhorn provides replicated block storage across worker nodes with a default replica count of 3. It serves as the default `StorageClass` for all persistent volume claims, including Prometheus metrics and Loki local cache.
+Most Helm charts are deployed through Ansible roles rather than Terraform for several reasons:
 
-### Single-Binary Loki and Standalone Tempo
+- Ansible roles can template Kubernetes manifests alongside Helm values (e.g., Secrets, IngressRoutes)
+- Role ordering is explicit in the playbook import sequence
+- Vault-encrypted variables integrate naturally with Ansible's variable system
 
-Both Loki and Tempo are deployed in single-binary/standalone mode rather than microservices mode. This reduces resource overhead and operational complexity for a cluster of this scale. Both use an external MinIO instance on a separate storage cluster as their long-term object store.
+### SingleBinary Observability
 
-### Grafana Alloy as Unified Collector
+Loki and Tempo run in SingleBinary mode (single replica) rather than microservices mode. This fits the homelab scale — a single pod per service is sufficient, reduces resource overhead, and simplifies debugging.
 
-Grafana Alloy replaces individual collectors (Promtail, OTEL Collector, etc.) with a single agent that handles metrics, logs, and traces. It runs as:
+### External S3 for Log/Trace Storage
 
-- **Metrics DaemonSet** -- Per-node metric scraping with control-plane toleration
-- **Logs DaemonSet** -- Per-node container log collection
-- **Singleton** -- Cluster-wide events and Prometheus Operator object discovery
-- **Receiver** -- OTLP ingest endpoint for application traces
+Loki and Tempo persist data to an S3-compatible object store on a dedicated storage cluster rather than local volumes. This decouples storage capacity from the networking cluster's disk, enables cross-cluster data durability, and allows the networking cluster to be torn down without losing observability data.
 
-### Prometheus without Grafana
+### Longhorn with 3-Replica Default
 
-The kube-prometheus-stack deploys Prometheus and its Operator but disables the bundled Grafana. Visualization is handled by a centralized Grafana instance on the hub/monitoring cluster, which reads metrics via Prometheus's LoadBalancer-exposed endpoint.
+Longhorn is configured with a 3-replica default even though it adds overhead. This protects against single-node failures for stateful workloads (Prometheus TSDB, Loki WAL, Tempo WAL) that cannot tolerate data loss.
 
-### DNS-01 TLS Challenges via Cloudflare
+### MetalLB L2 Mode
 
-Cert-manager uses DNS-01 challenges against the Cloudflare API rather than HTTP-01. This allows issuing wildcard certificates and works for services that are not publicly reachable via HTTP.
-
-### VPN Access with Pangolin-Newt
-
-Pangolin-Newt provides secure admin access to the cluster without exposing services on a public IP. Credentials are stored as a Kubernetes Secret templated from Ansible Vault.
-
-## Infrastructure Provisioning Layers
-
-The Terraform-managed infrastructure is split into two layers:
-
-| Layer | Purpose | Managed By |
-|-------|---------|------------|
-| `layer-1-infrastructure` | Proxmox VM creation and configuration | `roles/vms` |
-| `layer-2-helmapps` | Helm chart deployments (MetalLB, Longhorn) | `roles/metallb` |
-
-This separation ensures VMs are fully provisioned and reachable before any Kubernetes resources are applied.
-
-## Networking Model
-
-```
-External Traffic ──► MetalLB (L2 ARP) ──► Traefik Ingress ──► Services
-                                      ──► Pi-hole DNS (direct LB)
-                                      ──► Prometheus (direct LB)
-                                      ──► Loki (direct LB)
-                                      ──► Tempo (direct LB)
-```
-
-- **Traefik** handles HTTP/HTTPS ingress with TLS termination (certificates from cert-manager)
-- **Pi-hole, Prometheus, Loki, Tempo** are exposed directly via MetalLB LoadBalancer services for protocol-level access (DNS/UDP, remote-write, push API, OTLP)
-
-## Security Boundaries
-
-- All secrets are managed through Ansible Vault -- no credentials are stored in plaintext in the repository
-- Cloudflare API tokens are scoped to DNS zone editing for certificate challenges
-- MinIO credentials for Loki/Tempo are injected as Kubernetes Secrets from vault variables
-- VPN credentials are namespace-isolated in a dedicated `newt` namespace
-- Pi-hole DNS ad-blocking uses curated blocklists (StevenBlack, Hagezi, OISD, URLhaus, and others)
+MetalLB runs in Layer 2 advertisement mode, which is simpler than BGP and sufficient for a flat network topology. Each service that needs external access gets a dedicated IP from the configured pool.
 
 ## Invariants
 
-- The cluster always runs a single control-plane node (not HA); this is a known trade-off for simplicity
-- Longhorn replication factor of 3 requires at least 3 healthy worker nodes
-- Loki and Tempo depend on the external MinIO instance being reachable from the cluster network
-- MetalLB IP pool must not overlap with DHCP or other static assignments on the same VLAN
-- All Helm values and Kubernetes manifests are applied from the `apps/` directory -- infrastructure roles only set up prerequisites (namespaces, CRDs, secrets)
+- **All secrets are vault-encrypted** — No plaintext credentials in the repository. All sensitive values are referenced as Ansible vault variables.
+- **MetalLB must be deployed before any LoadBalancer service** — The layer-2 Terraform apply must succeed before any Ansible application role runs.
+- **cert-manager CRDs must exist before ClusterIssuers** — The cert-manager role installs CRDs first, then waits for CRD registration before applying ClusterIssuer resources.
+- **Flannel CNI is required** — The Kubernetes role deploys Flannel for pod networking. Pods will not schedule until the CNI is available.
+- **Kubeconfig is fetched to repo root** — After Kubernetes bootstrapping, the kubeconfig is copied locally for subsequent Ansible roles and manual `kubectl` access. This file is gitignored.
+
+## Concurrency Model
+
+Deployment is sequential by design:
+
+1. **VM provisioning** — Serial (Terraform manages state locks)
+2. **Kubernetes bootstrap** — Control plane first, then workers join in parallel
+3. **MetalLB** — Must complete before any other application
+4. **Application roles** — Executed in playbook order; each role assumes the previous one succeeded
+
+There is no parallel application deployment. This is intentional — roles have implicit dependencies (e.g., cert-manager must exist before Traefik can reference ClusterIssuers, Longhorn must exist before Loki can claim PVCs).
