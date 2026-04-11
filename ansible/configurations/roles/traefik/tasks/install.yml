@@ -1,53 +1,9 @@
 ---
-# Traefik install for the networking cluster.
+# Traefik is installed by the management cluster's ArgoCD via the
+# `networking-traefik` Application defined in
+# andusystems-management/apps/andusystems-networking/manifest.yml.
 #
-# Mirrors the alloy role's helm pattern: add repo → update → upgrade --install.
-# The chart values come from apps/traefik/values.yml. Service type and the
-# MetalLB LoadBalancer IP are passed inline so the IP can stay templated from
-# vault and not be hardcoded into apps/traefik/values.yml (which is also the
-# source of $values for any future ArgoCD migration of this chart).
-#
-# IMPORTANT: release name is `networking` (not `traefik`) so the chart's
-# fullname becomes `networking-traefik`. The hardcoded `serviceAccount` name
-# in apps/traefik/values.yml's RBAC ClusterRoleBinding subjects refers to
-# `networking-traefik` — changing the release name would break that binding.
-
-- name: Create traefik namespace
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: Namespace
-      metadata:
-        name: traefik
-        labels:
-          kubernetes.io/metadata.name: traefik
-  environment:
-    KUBECONFIG: "{{ kubeconfig }}"
-
-- name: Add Traefik Helm repo
-  command: helm repo add traefik https://traefik.github.io/charts
-  register: helm_repo
-  changed_when: "'has been added' in helm_repo.stdout"
-  failed_when: helm_repo.rc != 0 and 'already exists' not in helm_repo.stderr
-
-- name: Update Helm repos
-  command: helm repo update
-  changed_when: false
-
-- name: Install Traefik Helm chart
-  command: >
-    helm upgrade --install networking
-    traefik/traefik
-    --version 32.1.1
-    --namespace traefik
-    --values {{ repo_root }}/apps/traefik/values.yml
-    --set service.type=LoadBalancer
-    --set service.annotations."metallb\.io/address-pool"=default
-    --set service.annotations."metallb\.io/loadBalancerIPs"={{ networking_traefik_server_ip }}
-    --wait
-    --timeout 10m
-  environment:
-    KUBECONFIG: "{{ kubeconfig }}"
-  register: helm_install
-  changed_when: "'has been upgraded' in helm_install.stdout or 'has been installed' in helm_install.stdout"
+# This role exists for parity with the other app roles but has no
+# pre-bootstrap work to do: traefik has no vault-templated secrets
+# and no apps/traefik/manifest.yml side resources. ArgoCD creates
+# the namespace via syncOption CreateNamespace=true.
