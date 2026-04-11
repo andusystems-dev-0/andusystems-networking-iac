@@ -7,9 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Pi-hole namespace creation in deployment role.
 - Traefik role added to networking cluster deployment pipeline.
 
 ### Changed
+- Modified Traefik task import path in apps playbook.
+- Cleaned up and reorganized apps.yml role imports.
 - Replaced Terraform executable task with destroy operation for layer-1 infrastructure in Ansible playbook.
 - Updated retries and error handling for improved reliability in VM provisioning.
 - Refactored Ansible configurations for improved readability and organization.
@@ -86,8 +89,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Ansible roles: VMs, Kubernetes, MetalLB, Longhorn, cert-manager, Pangolin/Newt.
 - Deployment scripts for VMs, Kubernetes, applications, and full redeploy.
 - Pi-hole deployment with Traefik exposure.
-- Networking cluster updates and configuration.
+- Networking cluster initial configuration.
 
 ### Changed
 - Renamed project from fleetdock to networking.
-- Added Terraform destroy step back to `vms.yml`.
+- Added Terraform destroy step to `vms.yml`.

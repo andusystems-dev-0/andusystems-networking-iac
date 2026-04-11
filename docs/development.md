@@ -4,21 +4,21 @@
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| Terraform | 1.5+ | VM provisioning on Proxmox |
+| Terraform | 1.5+ | VM provisioning on Proxmox (`bpg/proxmox` provider) |
 | Ansible | 2.15+ | Cluster bootstrapping and app deployment |
 | kubectl | 1.31+ | Kubernetes CLI access |
 | Helm | 3.x | Chart management |
 | ssh-keygen / ssh-copy-id | — | SSH key distribution to nodes |
 
-### Ansible Collection
+### Ansible Collections
 
-Install the required Ansible collection:
+Install the required Ansible collection before running any playbooks:
 
 ```bash
 ansible-galaxy collection install -r ansible/requirements.yml
 ```
 
-This installs `kubernetes.core`, used by roles that apply Kubernetes manifests.
+This installs `kubernetes.core`, used by roles that apply Kubernetes manifests and Helm charts.
 
 ## Local Development Setup
 
@@ -33,7 +33,7 @@ cd andusystems-networking
 
 Create `terraform.tfvars` files for each Terraform layer. These files are gitignored and must be created manually.
 
-**`terraform/layers/layer-1-infrastructure/terraform.tfvars`:**
+**Layer 1 — VM Infrastructure** (`terraform/layers/layer-1-infrastructure/terraform.tfvars`):
 
 | Variable | Description |
 |----------|-------------|
@@ -52,7 +52,7 @@ Create `terraform.tfvars` files for each Terraform layer. These files are gitign
 | `ubuntu_cloud_image_url` | Ubuntu cloud image download URL |
 | `cluster_name` | Name prefix for VMs |
 
-**`terraform/layers/layer-2-helmapps/terraform.tfvars`:**
+**Layer 2 — MetalLB Helm** (`terraform/layers/layer-2-helmapps/terraform.tfvars`):
 
 | Variable | Description |
 |----------|-------------|
@@ -67,7 +67,7 @@ cp ansible/inventory/networking/group_vars/all/vault.example \
    ansible/inventory/networking/group_vars/all/vault
 ```
 
-Edit the vault file to populate all required secrets. Key variables:
+Edit the vault file to populate all required secrets:
 
 | Variable | Description |
 |----------|-------------|
@@ -77,7 +77,7 @@ Edit the vault file to populate all required secrets. Key variables:
 | `pod_network_cidr` | Pod network CIDR for Flannel |
 | `metallb_ip_range` | IP range for MetalLB pool |
 | `networking_traefik_server_ip` | Traefik LoadBalancer IP |
-| `cloudflare_api_token` | Cloudflare API token for DNS-01 |
+| `cloudflare_api_token` | Cloudflare API token for DNS-01 challenges |
 | `letsencrypt_email` | Email for Let's Encrypt registration |
 | `pangolin_endpoint` | Pangolin VPN endpoint |
 | `newt_id` | Newt tunnel identity |
@@ -122,12 +122,12 @@ This runs: VM provisioning → Kubernetes bootstrap → MetalLB → All applicat
 
 ### Individual Steps
 
-| Step | Command | Requires `-K` |
-|------|---------|---------------|
-| Provision VMs | `./scripts/vms.sh` | Yes |
-| Bootstrap Kubernetes | `./scripts/kubernetes.sh` | Yes |
-| Deploy applications | `./scripts/apps.sh` | No |
-| Full redeploy | `./scripts/redeploy.sh` | Yes |
+| Step | Command | Requires `-K` | Description |
+|------|---------|---------------|-------------|
+| Provision VMs | `./scripts/vms.sh` | Yes | Create VMs on Proxmox via Terraform |
+| Bootstrap Kubernetes | `./scripts/kubernetes.sh` | Yes | Install containerd, kubeadm, init cluster |
+| Deploy applications | `./scripts/apps.sh` | No | Deploy full application stack |
+| Full redeploy | `./scripts/redeploy.sh` | Yes | End-to-end infrastructure deployment |
 
 The `-K` flag prompts for the Ansible become (sudo) password on target hosts. Application deployment does not require sudo because it runs `kubectl`/`helm` commands against the Kubernetes API.
 
@@ -142,7 +142,7 @@ ansible-playbook \
   --tags <role>,install
 ```
 
-Replace `<role>` with one of: `vms`, `kubernetes`, `metallb`, `longhorn`, `cert-manager`, `pangolin-newt`, `traefik`, `pihole`, `loki`, `tempo`.
+Available roles: `vms`, `kubernetes`, `metallb`, `longhorn`, `cert-manager`, `pangolin-newt`, `traefik`, `pihole`, `loki`, `tempo`, `kube-prometheus-stack`, `alloy`.
 
 ### Terraform Operations
 
@@ -162,6 +162,21 @@ terraform plan
 terraform apply
 ```
 
+## Playbook Execution Order
+
+The full `networking.yml` playbook imports roles in this order:
+
+1. `vms` — Provision Proxmox VMs, distribute SSH keys, add `/etc/hosts` entries
+2. `kubernetes` — Install containerd, kubeadm, initialize cluster, join workers, deploy Flannel CNI
+3. `metallb` — Deploy MetalLB via Terraform layer-2, configure IP address pool
+4. `longhorn` — Deploy Longhorn distributed storage
+5. `cert-manager` — Install CRDs (v1.14.4), deploy cert-manager, create Cloudflare DNS-01 ClusterIssuer
+6. `pangolin-newt` — Deploy Newt VPN tunnel
+7. `traefik` — Deploy Traefik ingress controller with LoadBalancer
+8. `pihole` — Deploy Pi-hole DNS with IngressRoute
+
+The `apps.yml` playbook skips VM provisioning and Kubernetes bootstrap, starting from `longhorn`. It additionally includes `loki`, `tempo`, and (optionally) `alloy` roles.
+
 ## Environment Variables
 
 No environment variables are required. All configuration is provided through:
@@ -169,20 +184,18 @@ No environment variables are required. All configuration is provided through:
 - **Terraform:** `terraform.tfvars` files in each layer directory
 - **Ansible:** Vault-encrypted variables in `ansible/inventory/networking/group_vars/all/vault`
 
-## Playbook Execution Order
+## Inventory Structure
 
-The full `networking.yml` playbook imports roles in this order:
+The Ansible inventory (`ansible/inventory/networking/hosts.yml`) defines the following host groups:
 
-1. `vms` — Provision Proxmox VMs, distribute SSH keys
-2. `kubernetes` — Install containerd, kubeadm, initialize cluster, join workers, deploy Flannel CNI
-3. `metallb` — Deploy MetalLB via Terraform layer-2, configure IP address pool
-4. `longhorn` — Deploy Longhorn distributed storage
-5. `cert-manager` — Install CRDs, deploy cert-manager, create ClusterIssuer
-6. `pangolin-newt` — Deploy Newt VPN tunnel
-7. `traefik` — Deploy Traefik ingress controller with LoadBalancer
-8. `pihole` — Deploy Pi-hole DNS with IngressRoute
+| Group | Purpose |
+|-------|---------|
+| `linux` | All cluster nodes |
+| `vms` | Proxmox-provisioned nodes |
+| `controllers` | Control plane node(s) |
+| `workers` | Worker node pool |
 
-The `apps.yml` playbook skips VM provisioning and Kubernetes bootstrap, starting from `longhorn`.
+The `vars.yml` file maps vault-prefixed variables to role-consumable names. SSH connection settings include retry logic (configurable retries, delay, and timeout).
 
 ## Testing
 
@@ -200,6 +213,9 @@ kubectl --kubeconfig kubeconfig get svc -A | grep LoadBalancer
 
 # Verify certificates are issued
 kubectl --kubeconfig kubeconfig get certificates -A
+
+# Verify DNS resolution via Pi-hole
+dig @<pihole-lb-ip> example.com
 ```
 
 ## Troubleshooting
@@ -209,10 +225,10 @@ kubectl --kubeconfig kubeconfig get certificates -A
 Check that SSH keys were distributed correctly:
 
 ```bash
-ssh -i <key-path> <user>@<control-plane-ip>
+ssh -i <key-path> <user>@<node-ip>
 ```
 
-Ansible logs are written to `ansible.log` in the repository root.
+Ansible logs are written to `ansible.log` in the repository root. Increase verbosity with `-vvv` when running playbooks.
 
 ### Terraform State Issues
 
@@ -234,3 +250,21 @@ If workers fail to join, the join token may have expired. Re-run the kubernetes 
 ```
 
 The role regenerates the join command from the control plane on each run.
+
+### MetalLB IP Not Assigned
+
+Ensure MetalLB is deployed and the IPAddressPool matches the expected range. Check MetalLB speaker logs:
+
+```bash
+kubectl --kubeconfig kubeconfig logs -n metallb-system -l app=metallb,component=speaker
+```
+
+### cert-manager Challenges Failing
+
+Verify the Cloudflare API token has DNS edit permissions. Check challenge status:
+
+```bash
+kubectl --kubeconfig kubeconfig describe challenges -A
+```
+
+Ensure the recursive DNS nameservers configured in cert-manager values are reachable from the cluster.
