@@ -1,154 +1,169 @@
 # andusystems-networking
 
-Infrastructure-as-Code repository for the **networking cluster** — a Kubernetes cluster dedicated to ingress routing, DNS, TLS certificate management, and observability collection within a multi-cluster homelab environment.
+> Infrastructure-as-Code for the networking cluster — Kubernetes-based ingress, DNS, TLS, observability, and storage for the andusystems homelab.
 
 ## Purpose
 
-This cluster serves as the networking backbone for public-facing application traffic. It provides:
+This repository defines the networking cluster: a dedicated Kubernetes cluster that handles ingress routing, DNS filtering, TLS certificate automation, load balancing, VPN tunneling, distributed storage, and full-stack observability for a multi-cluster homelab. The cluster is provisioned on a Proxmox hypervisor via Terraform, bootstrapped with Ansible, and managed through GitOps by a central ArgoCD instance on the management cluster. All secrets are vault-encrypted; no plaintext credentials exist in the repository.
 
-- **Ingress** — Traefik reverse proxy with TLS termination
-- **DNS** — Pi-hole for ad-blocking DNS resolution with upstream forwarding
-- **Load Balancing** — MetalLB for bare-metal LoadBalancer services
-- **TLS** — cert-manager with Let's Encrypt (DNS-01 via Cloudflare)
-- **VPN** — Pangolin/Newt tunnel for secure remote access
-- **Storage** — Longhorn distributed block storage
-- **Observability** — Prometheus, Loki, Tempo, and Alloy for metrics, logs, and traces
+## At a glance
 
-The cluster is managed via GitOps from a central ArgoCD instance on a separate management cluster.
+| Field | Value |
+|---|---|
+| Type | IaC cluster |
+| Role | spoke — networking services hub for other clusters |
+| Primary stack | Terraform + Ansible + ArgoCD |
+| Deployed by | hub ArgoCD (Helm apps) / Ansible (infra bootstrap) |
+| Status | production |
 
-## Architecture Summary
+## Components
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Networking Cluster                        │
-│                                                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
-│  │ Traefik  │  │ Pi-hole  │  │ MetalLB  │  │ Longhorn  │  │
-│  │ (Ingress)│  │  (DNS)   │  │  (L2 LB) │  │ (Storage) │  │
-│  └──────────┘  └──────────┘  └──────────┘  └───────────┘  │
-│                                                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
-│  │  Loki    │  │  Tempo   │  │Prometheus│  │   Alloy   │  │
-│  │ (Logs)   │  │ (Traces) │  │(Metrics) │  │(Collector)│  │
-│  └──────────┘  └──────────┘  └──────────┘  └───────────┘  │
-│                                                             │
-│  ┌──────────────────┐  ┌────────────────────────────────┐  │
-│  │   cert-manager   │  │      Pangolin / Newt (VPN)     │  │
-│  │ (TLS via DNS-01) │  │    (Secure tunnel endpoint)    │  │
-│  └──────────────────┘  └────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
+| Component | Purpose | Location |
+|---|---|---|
+| Traefik | Reverse proxy ingress with TLS termination | `apps/traefik/` |
+| Pi-hole | DNS resolver with ad-blocking (19 curated blocklists) | `apps/pihole/` |
+| MetalLB | Layer 2 load balancer for bare-metal LoadBalancer services | `apps/metallb/` |
+| cert-manager | Let's Encrypt TLS automation via Cloudflare DNS-01 | `apps/cert-manager/` |
+| Pangolin / Newt | VPN tunnel for secure remote cluster access | `apps/pangolin-newt/` |
+| Longhorn | Distributed block storage, 3-replica default | `apps/longhorn/` |
+| Loki | Log aggregation, SingleBinary mode, S3 backend, 30-day retention | `apps/loki/` |
+| Tempo | Distributed tracing, OTLP receiver, S3 backend | `apps/tempo/` |
+| Prometheus | Metrics collection, 7-day retention, AlertManager | `apps/kube-prometheus-stack/` |
+| Alloy | Telemetry collector — metrics, logs, traces (deployed by hub) | `apps/alloy/` |
+| cluster-status | Nginx healthz endpoint with TLS for uptime monitoring | `apps/cluster-status/` |
 
-For full architecture details, see [docs/architecture.md](docs/architecture.md).
-
-## Repository Structure
+## Architecture
 
 ```
-├── terraform/
-│   └── layers/
-│       ├── layer-1-infrastructure/   # Proxmox VM provisioning
-│       └── layer-2-helmapps/         # Helm chart deployment (MetalLB)
-├── ansible/
-│   ├── ansible.cfg                   # Ansible configuration
-│   ├── requirements.yml              # Ansible Galaxy dependencies
-│   ├── inventory/networking/         # Inventory & group variables
-│   └── configurations/
-│       ├── networking.yml            # Full-stack playbook
-│       ├── apps.yml                  # Application-only playbook
-│       └── roles/                    # Individual component roles
-├── apps/                             # Helm values & Kubernetes manifests
-│   ├── alloy/                        # Grafana Alloy telemetry collector
-│   ├── cert-manager/                 # TLS certificate automation
-│   ├── kube-prometheus-stack/        # Prometheus + AlertManager
-│   ├── loki/                         # Log aggregation
-│   ├── longhorn/                     # Distributed block storage
-│   ├── metallb/                      # L2 load balancer
-│   ├── pangolin-newt/                # VPN tunnel
-│   ├── pihole/                       # DNS with ad-blocking
-│   ├── tempo/                        # Distributed tracing
-│   └── traefik/                      # Ingress controller
-├── scripts/                          # Operational automation scripts
-│   ├── vms.sh                        # Provision VMs
-│   ├── kubernetes.sh                 # Bootstrap Kubernetes
-│   ├── apps.sh                       # Deploy applications
-│   └── redeploy.sh                   # Full teardown + redeploy
-└── kubeconfig                        # Cluster access (gitignored)
+External Client
+      │
+      ▼
+┌──────────────────┐
+│  Pangolin / Newt │  VPN entry point
+└────────┬─────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────┐
+│                  Networking Cluster                  │
+│                                                      │
+│  MetalLB (L2) — assigns LoadBalancer IPs from pool  │
+│          │                                           │
+│   ┌──────┴────┐  ┌──────────┐  ┌───────────────┐   │
+│   │  Traefik  │  │ Pi-hole  │  │  cert-manager │   │
+│   │ (Ingress) │  │  (DNS)   │  │  (TLS / ACME) │   │
+│   └───────────┘  └──────────┘  └───────────────┘   │
+│                                                      │
+│   ┌──────────────────────────────────────────────┐  │
+│   │              Observability Stack             │  │
+│   │   Alloy ──► Loki / Tempo / Prometheus        │  │
+│   └──────────────────────────────────────────────┘  │
+│                                                      │
+│   ┌──────────────────────────────────────────────┐  │
+│   │   Longhorn (distributed block storage)       │  │
+│   └──────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
+         │
+         ▼
+   External S3 (Loki + Tempo long-term retention)
 ```
 
-## Quick Start
+Traffic enters through the Pangolin/Newt VPN tunnel and routes to Traefik (via a MetalLB LoadBalancer IP); cert-manager automates TLS certificates using Cloudflare DNS-01 challenges. See [docs/architecture.md](docs/architecture.md) for full component diagrams and data flows.
+
+## Quick start
 
 ### Prerequisites
 
-- Terraform with the Proxmox provider
-- Ansible 2.15+ with the `kubernetes.core` collection
-- `kubectl` and `helm` CLI tools
-- Access to a Proxmox hypervisor
-- A `terraform.tfvars` file for layer-1 and layer-2 (see [docs/development.md](docs/development.md))
-- An Ansible vault file with cluster secrets
+| Tool | Version | Purpose |
+|---|---|---|
+| Terraform | 1.5+ | VM provisioning on Proxmox |
+| Ansible | 2.15+ | Cluster bootstrap and app deployment |
+| kubectl | 1.31+ | Kubernetes API access |
+| Helm | 3.x | Chart management (invoked by Ansible roles) |
 
-### 1. Provision VMs
+### Deploy / run
 
 ```bash
+# Install required Ansible collections
+ansible-galaxy collection install -r ansible/requirements.yml
+
+# Provision VMs on Proxmox (prompts for sudo password on target hosts)
 ./scripts/vms.sh
-```
 
-Creates control plane and worker VMs on Proxmox via Terraform, distributes SSH keys, and configures host entries.
-
-### 2. Bootstrap Kubernetes
-
-```bash
+# Bootstrap Kubernetes cluster (prompts for sudo password on target hosts)
 ./scripts/kubernetes.sh
-```
 
-Installs containerd, kubeadm, kubelet, and kubectl on all nodes. Initializes the control plane, joins workers, and deploys the Flannel CNI.
-
-### 3. Deploy Applications
-
-```bash
+# Deploy all applications
 ./scripts/apps.sh
 ```
 
-Deploys the full application stack: Longhorn, cert-manager, Pangolin/Newt, Loki, Tempo, Traefik, and Pi-hole.
-
-### Full Redeploy
+Run the entire pipeline in one command:
 
 ```bash
 ./scripts/redeploy.sh
 ```
 
-Runs the entire pipeline end-to-end: VM provisioning, Kubernetes bootstrap, MetalLB, and all applications.
+See [docs/development.md](docs/development.md) for vault setup, Terraform variable configuration, and individual role deployment.
 
-## Configuration Reference
+## Configuration
 
-All configuration is managed through Ansible vault-encrypted variables. Key configuration areas:
+All secrets are stored in an Ansible vault file at `ansible/inventory/networking/group_vars/all/vault`. Copy `vault.example` in the same directory to get the full list of required keys. Values reference encrypted vault variables in `vars.yml`.
 
-| Category | Variables | Description |
-|----------|-----------|-------------|
-| SSH | `ssh_user`, `ssh_key_path` | SSH access to cluster nodes |
-| Kubernetes | `kubernetes_version`, `pod_network_cidr` | K8s version and pod networking |
-| Networking | `metallb_ip_range`, `networking_traefik_server_ip` | MetalLB pool and Traefik LB address |
-| TLS | `cloudflare_api_token`, `letsencrypt_email` | DNS-01 challenge credentials |
-| VPN | `pangolin_endpoint`, `newt_id`, `newt_secret` | Pangolin tunnel configuration |
-| DNS | `pihole_url` | Pi-hole ingress hostname |
-| Monitoring | `grafana_admin_user`, `grafana_admin_password` | Grafana dashboard credentials |
-| Storage | `minio_root_user`, `minio_root_password` | MinIO S3 backend credentials |
-| Proxmox | `proxmox_api_token_id`, `proxmox_api_token_secret` | Hypervisor API access |
+| Key | Required | Description |
+|---|---|---|
+| `ssh_user` | Yes | SSH username for node access |
+| `ssh_key_path` | Yes | Path to SSH private key |
+| `kubernetes_version` | Yes | Target Kubernetes version |
+| `pod_network_cidr` | Yes | Pod CIDR for Flannel CNI |
+| `metallb_ip_range` | Yes | IP range for MetalLB LoadBalancer pool |
+| `networking_traefik_server_ip` | Yes | Traefik LoadBalancer IP |
+| `cloudflare_api_token` | Yes | Cloudflare API token for DNS-01 challenges |
+| `letsencrypt_email` | Yes | Email for Let's Encrypt ACME registration |
+| `pangolin_endpoint` | Yes | Pangolin VPN endpoint address |
+| `newt_id` | Yes | Newt tunnel identity |
+| `newt_secret` | Yes | Newt tunnel secret |
+| `minio_root_user` | Yes | MinIO S3 backend username |
+| `minio_root_password` | Yes | MinIO S3 backend password |
+| `proxmox_api_token_id` | Yes | Proxmox API token ID |
+| `proxmox_api_token_secret` | Yes | Proxmox API token secret |
+| `grafana_admin_user` | Yes | Grafana admin username (hub Grafana) |
+| `grafana_admin_password` | Yes | Grafana admin password (hub Grafana) |
 
-See `ansible/inventory/networking/group_vars/all/vault.example` for the full list of required secrets.
+## Repository layout
 
-## Deployment Scripts
+```
+.
+├── terraform/
+│   └── layers/
+│       ├── layer-1-infrastructure/   # Proxmox VM provisioning (control plane + workers)
+│       └── layer-2-helmapps/         # MetalLB Helm deployment
+├── ansible/
+│   ├── ansible.cfg                   # Ansible defaults (SSH, logging)
+│   ├── requirements.yml              # Galaxy collection dependencies
+│   ├── inventory/networking/         # Hosts and vault-encrypted variables
+│   └── configurations/
+│       ├── networking.yml            # Full-stack playbook (VMs → apps)
+│       ├── apps.yml                  # Apps-only playbook (skips infra)
+│       └── roles/                    # One role per cluster component
+├── apps/                             # Helm values and Kubernetes manifests
+│   ├── cert-manager/                 # ClusterIssuer manifest + Helm values
+│   ├── cluster-status/               # Healthz endpoint manifest
+│   ├── kube-prometheus-stack/        # Prometheus + AlertManager Helm values
+│   ├── loki/  tempo/  alloy/         # Observability stack
+│   ├── longhorn/  metallb/           # Storage and load balancer
+│   ├── pangolin-newt/                # VPN tunnel manifest
+│   └── pihole/  traefik/             # DNS and ingress
+├── scripts/                          # vms.sh  kubernetes.sh  apps.sh  redeploy.sh
+└── docs/                             # Architecture and development guides
+```
 
-| Script | Command | Purpose |
-|--------|---------|---------|
-| `vms.sh` | `ansible-playbook ... roles/vms.yml` | Provision Proxmox VMs |
-| `kubernetes.sh` | `ansible-playbook ... roles/kubernetes.yml` | Bootstrap K8s cluster |
-| `apps.sh` | `ansible-playbook ... apps.yml` | Deploy application stack |
-| `redeploy.sh` | `ansible-playbook ... networking.yml` | Full infrastructure redeploy |
+## Related repos
 
-All scripts use the `ansible/inventory/networking` inventory. Scripts requiring sudo on target hosts use the `-K` flag to prompt for the become password.
+| Repo | Relation |
+|---|---|
+| andusystems-management | hub — manages Traefik and other ArgoCD-deployed apps on this cluster |
 
-## Further Documentation
+## Further documentation
 
-- [Architecture](docs/architecture.md) — Component diagram, data flows, and design decisions
-- [Development](docs/development.md) — Local setup, prerequisites, and environment variables
-- [Changelog](CHANGELOG.md) — Release history
+- [Architecture](docs/architecture.md) — component diagrams, data flows, design decisions
+- [Development](docs/development.md) — local setup, prerequisites, deployment commands
+- [Changelog](CHANGELOG.md) — release history

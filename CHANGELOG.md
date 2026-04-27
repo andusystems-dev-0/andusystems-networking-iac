@@ -7,7 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- Traefik role added to networking cluster deployment pipeline.
+- Traefik role added to networking cluster deployment pipeline (no-op; documents that ArgoCD manages Traefik).
+- cluster-status application: Nginx healthz endpoint with Traefik IngressRoute and Let's Encrypt TLS certificate.
 
 ### Changed
 - Replaced Terraform executable task with destroy operation for layer-1 infrastructure in Ansible playbook.
@@ -16,9 +17,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Standardized line endings in shell scripts.
 - Updated playbook imports and enhanced variable definitions.
 - Removed obsolete tasks and ensured consistent formatting across all role files.
+- Traefik deployment fully delegated to management cluster ArgoCD; Ansible role retained for documentation parity.
+- Added Pi-hole namespace creation task to Ansible pipeline.
+- Cleaned up apps.yml playbook imports.
 
 ### Fixed
-- Enabled Traefik CRD installation.
+- Fixed Traefik CRD installation and confirmed ArgoCD as sole Traefik deployment mechanism.
 - Consolidated Pi-hole LoadBalancer IP to values.yml as single source of truth.
 
 ## [2026-04-07]
