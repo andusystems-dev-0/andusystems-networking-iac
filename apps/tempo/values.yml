@@ -58,4 +58,4 @@ serviceMonitor:
 
 service:
   type: LoadBalancer
-  loadBalancerIP: "10.238.30.20"
+  loadBalancerIP: "10.238.30.23"
