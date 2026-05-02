@@ -113,6 +113,19 @@ spec:
   selector:
     app: cluster-status
 ---
+# Restrict /healthz to the portfolio cluster's node CIDR. The portfolio
+# cluster runs the cluster-status proxy that fans out to each cluster's
+# /healthz endpoint; no other source has any business hitting this path.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: cluster-status-portfolio-only
+  namespace: cluster-status
+spec:
+  ipAllowList:
+    sourceRange:
+      - 10.238.80.0/24
+---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -123,8 +136,11 @@ spec:
     - web
     - websecure
   routes:
-    - match: Host(`status-networking.andusystems.com`)
+    - match: Host(`status-networking.andusystems.com`) && Path(`/healthz`)
       kind: Rule
+      middlewares:
+        - name: cluster-status-portfolio-only
+          namespace: cluster-status
       services:
         - name: cluster-status
           port: 80
