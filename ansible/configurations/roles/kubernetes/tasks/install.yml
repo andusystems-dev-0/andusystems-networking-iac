@@ -16,10 +16,10 @@
 # --- Install Kubernetes dependencies on all nodes ---
 - name: install | Wait for apt locks to release
   ansible.builtin.shell: |
-    while fuser /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1; do
+    timeout 600 bash -c 'while fuser /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1; do
       echo "Waiting for apt lock..."
       sleep 5
-    done
+    done'
   changed_when: false
   args:
     executable: /bin/bash
@@ -45,7 +45,11 @@
   ansible.builtin.apt:
     update_cache: true
     cache_valid_time: 3300
+    lock_timeout: 300
 
+# Race-resistant against unattended-upgrades reacquiring the dpkg lock
+# between the wait task above and this install. lock_timeout lets apt
+# itself wait, and the retries cover longer holds.
 - name: install | Install required packages
   ansible.builtin.apt:
     name:
@@ -55,6 +59,11 @@
       - kubectl
       - conntrack
     state: present
+    lock_timeout: 600
+  register: pkg_install
+  retries: 5
+  delay: 30
+  until: pkg_install is succeeded
 
 - name: install | Hold Kubernetes packages
   ansible.builtin.dpkg_selections:
@@ -129,12 +138,13 @@
     enabled: true
     state: started
 
-# --- Initialize control plane ---
+# --- Initialize control plane (controllers only) ---
 - name: install | Reset kubeadm (clean state)
   ansible.builtin.command:
     cmd: kubeadm reset -f
   changed_when: true
   ignore_errors: true
+  when: inventory_hostname in groups['controllers']
 
 - name: install | Clean CNI interfaces
   ansible.builtin.shell: |
@@ -144,18 +154,21 @@
   args:
     executable: /bin/bash
   changed_when: false
+  when: inventory_hostname in groups['controllers']
 
 - name: install | Initialize Kubernetes cluster
   ansible.builtin.command:
     cmd: kubeadm init --pod-network-cidr={{ pod_network_cidr }}
   register: kubeadm_init
   changed_when: "'Your Kubernetes control-plane has been initialized successfully' in kubeadm_init.stdout"
+  when: inventory_hostname in groups['controllers']
 
 - name: install | Create .kube directory
   ansible.builtin.file:
     path: /home/{{ ssh_user }}/.kube
     state: directory
     mode: '0700'
+  when: inventory_hostname in groups['controllers']
 
 - name: install | Copy admin.conf to user's kubeconfig
   ansible.builtin.copy:
@@ -164,43 +177,23 @@
     remote_src: true
     owner: "{{ ssh_user }}"
     group: "{{ ssh_user }}"
-    mode: '0300'
+    mode: '0600'
+  when: inventory_hostname in groups['controllers']
 
 - name: install | Set ownership of kubeconfig
   ansible.builtin.file:
     path: /home/{{ ssh_user }}/.kube/config
     owner: "{{ ssh_user }}"
     group: "{{ ssh_user }}"
-    mode: '0300'
-
-- name: install | Check if cluster is already initialized
-  ansible.builtin.stat:
-    path: /etc/kubernetes/admin.conf
-  register: k8s_config
-  run_once: true
-  become: true
+    mode: '0600'
   when: inventory_hostname in groups['controllers']
-
-- name: install | Get join command from control plane
-  ansible.builtin.command:
-    cmd: kubeadm token create --print-join-command
-  register: join_command_raw
-  changed_when: true
-  run_once: true
-  become: true
-  when: inventory_hostname in groups['controllers'] and k8s_config.stat.exists
-
-- name: install | Set join command fact
-  ansible.builtin.set_fact:
-    join_command: "{{ join_command_raw.stdout }}"
-    cacheable: true
-  run_once: true
 
 - name: install | Install Flannel CNI
   ansible.builtin.command:
     cmd: kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
   changed_when: true
   run_once: true
+  delegate_to: "{{ groups['controllers'][0] }}"
   environment:
     KUBECONFIG: "/home/{{ ssh_user }}/.kube/config"
 
@@ -210,6 +203,7 @@
     dest: "{{ repo_root }}/kubeconfig"
     flat: true
   run_once: true
+  delegate_to: "{{ groups['controllers'][0] }}"
 
 # --- Join worker nodes ---
 - name: install | Reset kubeadm on worker
