@@ -1,0 +1,13 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rustdesk-data
+  namespace: {{ rustdesk_namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ rustdesk_storage_class }}
+  resources:
+    requests:
+      storage: {{ rustdesk_pvc_size }}

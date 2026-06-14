@@ -1,0 +1,5 @@
+- name: main | install RustDesk Server
+  import_tasks: install.yml
+  tags:
+    - rustdesk-server
+    - install

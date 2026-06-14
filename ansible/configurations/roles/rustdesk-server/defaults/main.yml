@@ -1,0 +1,19 @@
+---
+# Image
+rustdesk_image: "rustdesk/rustdesk-server"
+rustdesk_image_tag: "latest"
+
+# Storage
+rustdesk_pvc_size: "1Gi"
+rustdesk_storage_class: "longhorn"
+
+# Resources
+rustdesk_hbbs_cpu_request: "50m"
+rustdesk_hbbs_memory_request: "64Mi"
+rustdesk_hbbs_cpu_limit: "500m"
+rustdesk_hbbs_memory_limit: "256Mi"
+
+rustdesk_hbbr_cpu_request: "50m"
+rustdesk_hbbr_memory_request: "64Mi"
+rustdesk_hbbr_cpu_limit: "500m"
+rustdesk_hbbr_memory_limit: "256Mi"

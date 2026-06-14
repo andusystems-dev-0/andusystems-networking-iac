@@ -1,0 +1,70 @@
+---
+- name: Create rustdesk-server namespace
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'namespace.yaml.j2') | from_yaml }}"
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+
+- name: Create rustdesk-data PVC
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'pvc-rustdesk-data.yaml.j2') | from_yaml }}"
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+
+- name: Deploy hbbs (signaling/rendezvous)
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'deployment-hbbs.yaml.j2') | from_yaml }}"
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+
+- name: Deploy hbbr (relay)
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'deployment-hbbr.yaml.j2') | from_yaml }}"
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+
+- name: Apply LAN LoadBalancer Services (MetalLB)
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ item }}"
+  loop: "{{ lookup('template', 'service-rustdesk-lan.yaml.j2') | from_yaml_all | list }}"
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+
+- name: Apply ClusterIP Services for Pangolin upstreams
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ item }}"
+  loop: "{{ lookup('template', 'services-rustdesk-cluster.yaml.j2') | from_yaml_all | list }}"
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+
+- name: Wait for hbbs to be Available
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    name: hbbs
+    namespace: "{{ rustdesk_namespace }}"
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 180
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+
+- name: Wait for hbbr to be Available
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    name: hbbr
+    namespace: "{{ rustdesk_namespace }}"
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 180
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"

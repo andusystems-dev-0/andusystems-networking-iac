@@ -43,7 +43,7 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
     datastore_id = var.vm_datastore_id
     file_id      = proxmox_virtual_environment_file.ubuntu_image[var.proxmox_control_plane_node].id
     interface    = "scsi0"
-    size         = 32
+    size         = 64
   }
 
   network_device {
@@ -97,7 +97,7 @@ resource "proxmox_virtual_environment_vm" "workers" {
     datastore_id = var.vm_datastore_id
     file_id      = proxmox_virtual_environment_file.ubuntu_image[var.proxmox_worker_nodes[count.index]].id
     interface    = "scsi0"
-    size         = 32
+    size         = 64
   }
 
   network_device {

@@ -56,3 +56,7 @@ proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret }}"
 
 minio_root_user: "{{ vault_minio_root_user }}"
 minio_root_password: "{{ vault_minio_root_password }}"
+
+rustdesk_lan_ip: "{{ vault_rustdesk_lan_ip }}"
+rustdesk_relay_fqdn: "{{ vault_rustdesk_relay_fqdn }}"
+rustdesk_namespace: "{{ vault_rustdesk_namespace }}"

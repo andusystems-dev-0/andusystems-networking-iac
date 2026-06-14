@@ -81,6 +81,36 @@ extraEnv:
   - name: FTLCONF_dns_listeningMode
     value: "all"
 
+# Internal andusystems.com hostnames. Public DNS for these routes via Pangolin
+# (overlay network) which isn't reachable from inside cluster pod networks or
+# from cluster nodes that need to pull images from Nexus. Resolving locally
+# through Pi-hole bypasses Pangolin and goes straight to each cluster's
+# Traefik LB IP over plain L3 cross-VLAN routing.
+#
+# IPs come from the management vault — keep this list in sync with
+# vault_<cluster>_traefik_server_ip whenever a new spoke cluster is added.
+customDnsEntries:
+  # Management cluster (VLAN 10) — argocd / forgejo / vault / keycloak / nexus admin
+  - "address=/argocd.andusystems.com/10.238.10.20"
+  - "address=/forgejo.andusystems.com/10.238.10.20"
+  - "address=/keycloak.andusystems.com/10.238.10.20"
+  - "address=/vault.andusystems.com/10.238.10.20"
+  # Storage cluster (VLAN 40) — Nexus Docker registry + admin UI
+  - "address=/registry.andusystems.com/10.238.40.20"
+  - "address=/nexus.andusystems.com/10.238.40.20"
+  - "address=/status-storage.andusystems.com/10.238.40.20"
+  # Monitoring cluster (VLAN 50) — grafana / prometheus / loki / alertmanager
+  - "address=/grafana.andusystems.com/10.238.50.20"
+  - "address=/prometheus.andusystems.com/10.238.50.20"
+  - "address=/alertmanager.andusystems.com/10.238.50.20"
+  - "address=/loki.andusystems.com/10.238.50.20"
+  - "address=/status-monitoring.andusystems.com/10.238.50.20"
+  # Portfolio cluster (VLAN 80)
+  - "address=/portfolio.andusystems.com/10.238.80.20"
+  # TODO(hireship): add hireship.andusystems.com once the SIT cluster's Traefik
+  # LB IP is pinned (vault_hireship_sit_traefik_server_ip). hireship.io stays on
+  # public DNS — that's the prod, internet-facing hostname.
+
 persistence:
   etcPihole:
     enabled: true

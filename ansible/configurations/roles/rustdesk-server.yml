@@ -1,0 +1,11 @@
+- name: Install RustDesk Server
+  gather_facts: true
+  hosts: localhost
+  tasks:
+
+    - include_role:
+        name: rustdesk-server
+      tags:
+        - rustdesk-server
+        - apps
+        - install

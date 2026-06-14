@@ -1,0 +1,65 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hbbr
+  namespace: {{ rustdesk_namespace }}
+  labels:
+    app: hbbr
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hbbr
+  template:
+    metadata:
+      labels:
+        app: hbbr
+    spec:
+      securityContext:
+        fsGroup: 0
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - hbbs
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: hbbr
+          image: "{{ rustdesk_image }}:{{ rustdesk_image_tag }}"
+          imagePullPolicy: IfNotPresent
+          args:
+            - "hbbr"
+          ports:
+            - { name: relay,    containerPort: 21117, protocol: TCP }
+            - { name: relay-ws, containerPort: 21119, protocol: TCP }
+          volumeMounts:
+            - name: data
+              mountPath: /root
+          resources:
+            requests:
+              cpu: "{{ rustdesk_hbbr_cpu_request }}"
+              memory: "{{ rustdesk_hbbr_memory_request }}"
+            limits:
+              cpu: "{{ rustdesk_hbbr_cpu_limit }}"
+              memory: "{{ rustdesk_hbbr_memory_limit }}"
+          readinessProbe:
+            tcpSocket:
+              port: 21117
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 21117
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: rustdesk-data

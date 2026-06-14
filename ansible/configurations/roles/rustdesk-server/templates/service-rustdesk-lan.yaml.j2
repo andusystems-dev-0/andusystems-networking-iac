@@ -1,0 +1,36 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustdesk-lan-hbbs
+  namespace: {{ rustdesk_namespace }}
+  annotations:
+    metallb.io/allow-shared-ip: "rustdesk-lan"
+    metallb.io/loadBalancerIPs: "{{ rustdesk_lan_ip }}"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  selector:
+    app: hbbs
+  ports:
+    - { name: nat-test,  port: 21115, targetPort: 21115, protocol: TCP }
+    - { name: tcp-punch, port: 21116, targetPort: 21116, protocol: TCP }
+    - { name: udp-rndvz, port: 21116, targetPort: 21116, protocol: UDP }
+    - { name: ws,        port: 21118, targetPort: 21118, protocol: TCP }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustdesk-lan-hbbr
+  namespace: {{ rustdesk_namespace }}
+  annotations:
+    metallb.io/allow-shared-ip: "rustdesk-lan"
+    metallb.io/loadBalancerIPs: "{{ rustdesk_lan_ip }}"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  selector:
+    app: hbbr
+  ports:
+    - { name: relay,    port: 21117, targetPort: 21117, protocol: TCP }
+    - { name: relay-ws, port: 21119, targetPort: 21119, protocol: TCP }

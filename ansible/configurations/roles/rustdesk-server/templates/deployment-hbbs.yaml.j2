@@ -1,0 +1,59 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hbbs
+  namespace: {{ rustdesk_namespace }}
+  labels:
+    app: hbbs
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hbbs
+  template:
+    metadata:
+      labels:
+        app: hbbs
+    spec:
+      securityContext:
+        fsGroup: 0
+      containers:
+        - name: hbbs
+          image: "{{ rustdesk_image }}:{{ rustdesk_image_tag }}"
+          imagePullPolicy: IfNotPresent
+          args:
+            - "hbbs"
+            - "-r"
+            - "{{ rustdesk_relay_fqdn }}:21117"
+          ports:
+            - { name: nat-test,  containerPort: 21115, protocol: TCP }
+            - { name: tcp-punch, containerPort: 21116, protocol: TCP }
+            - { name: udp-rndvz, containerPort: 21116, protocol: UDP }
+            - { name: ws,        containerPort: 21118, protocol: TCP }
+          volumeMounts:
+            - name: data
+              mountPath: /root
+          resources:
+            requests:
+              cpu: "{{ rustdesk_hbbs_cpu_request }}"
+              memory: "{{ rustdesk_hbbs_memory_request }}"
+            limits:
+              cpu: "{{ rustdesk_hbbs_cpu_limit }}"
+              memory: "{{ rustdesk_hbbs_memory_limit }}"
+          readinessProbe:
+            tcpSocket:
+              port: 21116
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 21116
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: rustdesk-data

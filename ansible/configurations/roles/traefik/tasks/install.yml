@@ -1,50 +1,9 @@
 ---
-# Bootstrap install of Traefik on the networking cluster. Mirrors the
-# cert-manager pattern: install directly during bootstrap so downstream
-# Ansible tasks (e.g. pihole) can apply IngressRoute/Middleware resources,
-# then management's ArgoCD `networking-traefik` Application adopts the
-# release on its first sync.
+# Traefik is installed by the management cluster's ArgoCD via the
+# `networking-traefik` Application defined in
+# andusystems-management/apps/andusystems-networking/manifest.yml.
 #
-# Uses the helm CLI directly because kubernetes.core.helm rejects helm 4.x.
-- name: Add Traefik Helm repository
-  ansible.builtin.command:
-    cmd: helm repo add traefik https://helm.traefik.io/traefik
-  register: helm_repo_add
-  changed_when: "'has been added' in helm_repo_add.stdout"
-  failed_when:
-    - helm_repo_add.rc != 0
-    - "'already exists' not in helm_repo_add.stderr"
-
-- name: Update Traefik Helm repository
-  ansible.builtin.command:
-    cmd: helm repo update traefik
-  changed_when: false
-
-- name: Install Traefik chart
-  ansible.builtin.command:
-    argv:
-      - helm
-      - upgrade
-      - --install
-      - traefik
-      - traefik/traefik
-      - --version
-      - "32.1.1"
-      - --namespace
-      - traefik
-      - --create-namespace
-      - --values
-      - "{{ repo_root }}/apps/traefik/values.yml"
-      - --set
-      - service.type=LoadBalancer
-      - --set
-      - "service.annotations.metallb\\.io/address-pool=default"
-      - --set
-      - "service.annotations.metallb\\.io/loadBalancerIPs={{ networking_traefik_server_ip }}"
-      - --wait
-      - --timeout
-      - 5m
-  environment:
-    KUBECONFIG: "{{ kubeconfig }}"
-  register: helm_install
-  changed_when: "'STATUS: deployed' in helm_install.stdout"
+# This role exists for parity with the other app roles but has no
+# pre-bootstrap work to do: traefik has no vault-templated secrets
+# and no apps/traefik/manifest.yml side resources. ArgoCD creates
+# the namespace via syncOption CreateNamespace=true.
