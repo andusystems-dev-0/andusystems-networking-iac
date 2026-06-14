@@ -43,6 +43,13 @@ newt_secret: "{{ vault_newt_secret }}"
 
 metallb_ip_range: "{{ vault_metallb_ip_range }}"
 
+# Internal DNS — Pi-hole on this same cluster (LB IP 10.238.30.50). Resolves
+# internal andusystems.com hostnames directly to each cluster's Traefik IP
+# instead of going through Pangolin. When Pi-hole is down, FallbackDNS keeps
+# external resolution working; only internal names break.
+cluster_dns: "{{ vault_cluster_dns | default('10.238.30.50') }}"
+cluster_dns_fallback: "{{ vault_cluster_dns_fallback | default('1.1.1.1 8.8.8.8') }}"
+
 networking_traefik_server_ip: "{{ vault_networking_traefik_server_ip }}"
 
 homepage_url: "{{ vault_homepage_url }}"
@@ -57,6 +64,3 @@ proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret }}"
 minio_root_user: "{{ vault_minio_root_user }}"
 minio_root_password: "{{ vault_minio_root_password }}"
 
-rustdesk_lan_ip: "{{ vault_rustdesk_lan_ip }}"
-rustdesk_relay_fqdn: "{{ vault_rustdesk_relay_fqdn }}"
-rustdesk_namespace: "{{ vault_rustdesk_namespace }}"

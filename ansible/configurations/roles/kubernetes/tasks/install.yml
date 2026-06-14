@@ -29,6 +29,36 @@
     cmd: swapoff -a
   changed_when: true
 
+# Point systemd-resolved at the Pi-hole DNS on this same cluster
+# (10.238.30.50 by default). Without this, nodes can't resolve internal
+# andusystems.com hostnames like registry.andusystems.com — public DNS
+# routes those through Pangolin, which isn't reachable from inside cluster
+# pod networks or from the kubelet's image-pull path.
+#
+# Same-cluster note: when Pi-hole itself is down, FallbackDNS keeps external
+# resolution working; only internal andusystems.com names break. Acceptable
+# since this cluster is the home of Pi-hole.
+- name: install | Configure systemd-resolved to use Pi-hole
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/resolved.conf
+    regexp: '^#?{{ item.key }}='
+    line: '{{ item.key }}={{ item.value }}'
+    state: present
+  loop:
+    - { key: 'DNS',         value: '{{ cluster_dns }}' }
+    - { key: 'FallbackDNS', value: '{{ cluster_dns_fallback }}' }
+  become: true
+  register: resolved_conf
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: install | Restart systemd-resolved if config changed
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: restarted
+  become: true
+  when: resolved_conf is changed
+
 - name: install | Add Kubernetes apt key
   ansible.builtin.apt_key:
     url: https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/Release.key
