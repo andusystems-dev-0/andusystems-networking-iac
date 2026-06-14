@@ -227,6 +227,36 @@
   environment:
     KUBECONFIG: "/home/{{ ssh_user }}/.kube/config"
 
+# Add a CoreDNS stub zone for andusystems.com so internal hostnames always
+# resolve through Pi-hole, never through the public fallback resolvers
+# (1.1.1.1, 8.8.8.8). Without this, CoreDNS's `forward . /etc/resolv.conf`
+# round-robins between Pi-hole and the fallbacks — fallbacks return NXDOMAIN
+# for andusystems.com, which CoreDNS caches for 30s, causing intermittent
+# failures from inside pods (e.g. ImagePullBackOff on Nexus pulls).
+- name: install | Patch CoreDNS with andusystems.com stub zone (idempotent)
+  ansible.builtin.shell: |
+    set -e
+    CURRENT=$(kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}')
+    if echo "$CURRENT" | grep -q 'andusystems.com:53'; then
+      echo unchanged
+      exit 0
+    fi
+    NEW="andusystems.com:53 {
+        errors
+        cache 30
+        forward . {{ cluster_dns }}
+    }
+    ${CURRENT}"
+    kubectl -n kube-system create cm coredns --from-literal=Corefile="$NEW" --dry-run=client -o yaml | kubectl apply -f -
+    kubectl -n kube-system rollout restart deploy coredns
+    echo patched
+  run_once: true
+  delegate_to: "{{ groups['controllers'][0] }}"
+  environment:
+    KUBECONFIG: "/home/{{ ssh_user }}/.kube/config"
+  register: coredns_patch
+  changed_when: coredns_patch.stdout == "patched"
+
 - name: install | Fetch kubeconfig to local machine
   ansible.builtin.fetch:
     src: "/home/{{ ssh_user }}/.kube/config"
