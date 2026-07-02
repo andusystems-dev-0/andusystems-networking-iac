@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- Traefik role added to networking cluster deployment pipeline (no-op; documents that ArgoCD manages Traefik).
+- Traefik role added to networking cluster deployment (no-op; documents that ArgoCD manages Traefik).
 - cluster-status application: Nginx healthz endpoint with Traefik IngressRoute and Let's Encrypt TLS certificate.
 
 ### Changed
